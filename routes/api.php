@@ -3,6 +3,7 @@
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\AuthController;
+use App\Http\Controllers\UserController;
 use App\Http\Controllers\ProductController;
 
 /*
@@ -54,6 +55,10 @@ Route::prefix('product')->middleware('auth:sanctum')->group(function () {
     Route::middleware('ability:penghadap,notaris,admin')->group(function () {
         Route::get('/', [ProductController::class, 'index']);
         Route::get('/{id}', [ProductController::class, 'detailProduct']);
+    });
+
+    Route::middleware('ability:penghadap,notaris')->group(function () {
+        Route::post('/user/update-profile', [UserController::class, 'updateProfile']);
     });
 
     // hanya role admin yang boleh CRUD
