@@ -1,0 +1,193 @@
+<?php
+
+namespace App\Http\Controllers;
+
+use App\Models\Deed;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Validator;
+
+class DeedController extends Controller
+{
+    /**
+     * GET /deeds
+     * Query opsional: q (search by name/description), page, per_page
+     */
+    public function index(Request $request)
+    {
+        $q        = $request->query('search');
+        $perPage  = (int)($request->query('per_page', 10));
+        $perPage  = $perPage > 0 ? $perPage : 10;
+
+        $query = Deed::query();
+
+        if ($q) {
+            $query->where(function ($sub) use ($q) {
+                $sub->where('name', 'like', "%{$q}%")
+                    ->orWhere('description', 'like', "%{$q}%");
+            });
+        }
+
+        $deeds = $query->orderBy('created_at', 'desc')->paginate($perPage);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Daftar akta berhasil diambil',
+            'data'    => $deeds->items(),
+            'meta'    => [
+                'current_page' => $deeds->currentPage(),
+                'per_page'     => $deeds->perPage(),
+                'total'        => $deeds->total(),
+                'last_page'    => $deeds->lastPage(),
+            ]
+        ], 200);
+    }
+
+    /**
+     * GET /deeds/{id}
+     */
+    public function show($id)
+    {
+        $deed = Deed::find($id);
+
+        if (!$deed) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Akta tidak ditemukan',
+                'data'    => null
+            ], 404);
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Detail akta berhasil diambil',
+            'data'    => $deed
+        ], 200);
+    }
+
+    /**
+     * POST /deeds
+     * Body: name, description, is_double_client (boolean)
+     */
+    public function store(Request $request)
+    {
+        $validasi = Validator::make($request->all(), [
+            'name'             => 'required|string|max:255|unique:deeds,name',
+            'description'      => 'required|string|max:255',
+            'is_double_client' => 'required|boolean',
+        ], [
+            'name.required'             => 'Nama akta wajib diisi.',
+            'name.string'               => 'Nama akta harus berupa teks.',
+            'name.max'                  => 'Nama akta maksimal 255 karakter.',
+            'name.unique'               => 'Nama akta sudah digunakan.',
+            'description.required'      => 'Deskripsi wajib diisi.',
+            'description.string'        => 'Deskripsi harus berupa teks.',
+            'description.max'           => 'Deskripsi maksimal 255 karakter.',
+            'is_double_client.required' => 'Status klien ganda wajib diisi.',
+            'is_double_client.boolean'  => 'Status klien ganda harus berupa boolean.',
+        ]);
+
+        if ($validasi->fails()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Proses validasi gagal',
+                'data'    => $validasi->errors(),
+            ], 422);
+        }
+
+        $deed = Deed::create($validasi->validated());
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Akta berhasil dibuat',
+            'data'    => $deed,
+        ], 201);
+    }
+
+    /**
+     * PUT /deeds/{id}
+     */
+    public function update(Request $request, $id)
+    {
+        $deed = Deed::find($id);
+        if (!$deed) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Akta tidak ditemukan',
+                'data'    => null
+            ], 404);
+        }
+
+        $validasi = Validator::make($request->all(), [
+            'name'             => 'required|string|max:255|unique:deeds,name,' . $deed->id,
+            'description'      => 'required|string|max:255',
+            'is_double_client' => 'required|boolean',
+        ], [
+            'name.required'            => 'Nama harus di isi.',
+            'name.string'              => 'Nama akta harus berupa teks.',
+            'name.max'                 => 'Nama akta maksimal 255 karakter.',
+            'name.unique'              => 'Nama akta sudah digunakan.',
+            'description.required'     => 'Deskripsi harus di isi.',
+            'description.string'       => 'Deskripsi harus berupa teks.',
+            'description.max'          => 'Deskripsi maksimal 255 karakter.',
+            'is_double_client.required' => 'Jumlah Penghadap harus di isi.',
+            'is_double_client.boolean' => 'Status klien ganda harus berupa boolean.',
+        ]);
+
+        if ($validasi->fails()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Proses validasi gagal',
+                'data'    => $validasi->errors(),
+            ], 422);
+        }
+
+        $data = $validasi->validated();
+
+        foreach (['name', 'description', 'is_double_client'] as $f) {
+            if (array_key_exists($f, $data)) {
+                $deed->{$f} = $data[$f];
+            }
+        }
+
+        $deed->save();
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Akta berhasil diperbarui josjis',
+            'data'    => $deed
+        ], 200);
+    }
+
+    /**
+     * DELETE /deeds/{id}
+     * Cegah hapus jika masih ada relasi penting
+     */
+    public function destroy($id)
+    {
+        $deed = Deed::find($id);
+        if (!$deed) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Akta tidak ditemukan',
+                'data'    => null
+            ], 404);
+        }
+
+        // Cek relasi sebelum hapus
+        if ($deed->activities()->exists() || $deed->requirements()->exists()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Akta tidak dapat dihapus karena masih memiliki data terkait (activities/requirements).',
+                'data'    => null
+            ], 409); // Conflict
+        }
+
+        $deed->delete();
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Akta berhasil dihapus',
+            'data'    => null
+        ], 200);
+    }
+}

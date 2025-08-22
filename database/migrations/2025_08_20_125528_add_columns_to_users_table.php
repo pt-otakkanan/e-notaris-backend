@@ -13,7 +13,9 @@ return new class extends Migration
             $table->string('telepon', 255)->nullable()->after('email');
             $table->string('gender', 255)->nullable()->after('telepon');
             $table->string('address', 255)->nullable()->after('password');
-            $table->boolean('status_verification')->nullable(false)->default(false)->after('address');
+            $table->enum('status_verification', ['pending', 'approved', 'rejected'])
+                ->default('pending')
+                ->after('address');
         });
     }
 
