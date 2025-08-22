@@ -43,8 +43,20 @@ class AuthController extends Controller
             'email'            => 'required|email|unique:users,email',
             'password'         => 'required|min:6',
             'confirmPassword'  => 'required|same:password',
-            'role_id'          => 'required|in:2,3', // penghadap / notaris
+            'role_id'          => 'required|in:2,3',
+        ], [
+            'name.required'            => 'Nama wajib diisi.',
+            'email.required'           => 'Email wajib diisi.',
+            'email.email'              => 'Format email tidak valid.',
+            'email.unique'             => 'Email sudah terdaftar.',
+            'password.required'        => 'Password wajib diisi.',
+            'password.min'             => 'Password minimal 6 karakter.',
+            'confirmPassword.required' => 'Konfirmasi password wajib diisi.',
+            'confirmPassword.same'     => 'Konfirmasi password harus sama dengan password.',
+            'role_id.required'         => 'Role wajib dipilih.',
+            'role_id.in'               => 'Role hanya boleh 2 (penghadap) atau 3 (notaris).',
         ]);
+
         if ($validasi->fails()) {
             return response()->json([
                 'success' => false,
@@ -81,7 +93,14 @@ class AuthController extends Controller
         $validasi = Validator::make($request->all(), [
             'email' => 'required|email',
             'kode'  => 'required|string'
+        ], [
+            'email.required' => 'Email wajib diisi.',
+            'email.email'    => 'Format email tidak valid.',
+            'kode.required'  => 'Kode verifikasi wajib diisi.',
+            'kode.string'    => 'Kode verifikasi harus berupa teks.'
         ]);
+
+
         if ($validasi->fails()) {
             return response()->json([
                 'success' => false,
@@ -125,7 +144,11 @@ class AuthController extends Controller
     {
         $validasi = Validator::make($request->all(), [
             'email' => 'required|email',
+        ], [
+            'email.required' => 'Email wajib diisi.',
+            'email.email'    => 'Format email tidak valid.'
         ]);
+
         if ($validasi->fails()) {
             return response()->json([
                 'success' => false,
@@ -163,7 +186,12 @@ class AuthController extends Controller
         $validasi = Validator::make($request->all(), [
             'email'    => 'required|email',
             'password' => 'required'
+        ], [
+            'email.required'    => 'Email wajib diisi.',
+            'email.email'       => 'Format email tidak valid.',
+            'password.required' => 'Password wajib diisi.'
         ]);
+
         if ($validasi->fails()) {
             return response()->json([
                 'success' => false,
