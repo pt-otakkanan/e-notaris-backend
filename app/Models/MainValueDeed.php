@@ -12,6 +12,7 @@ class MainValueDeed extends Model
 
     protected $fillable = [
         'deed_id',
+        'name',
         'main_value',
     ];
 

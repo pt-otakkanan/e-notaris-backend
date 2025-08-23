@@ -14,8 +14,9 @@ return new class extends Migration
             $table->unsignedBigInteger('user_id');
 
 
-            $table->string('file', 255)->nullable(false);
-            $table->string('file_path', 255)->nullable(false);
+            $table->string('value', 255)->nullable();
+            $table->string('file', 255)->nullable();
+            $table->string('file_path', 255)->nullable();
             $table->enum('status_approval', ['pending', 'approved', 'rejected'])->nullable(false);
             $table->timestamps();
 
