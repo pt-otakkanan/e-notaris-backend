@@ -89,7 +89,7 @@ Route::prefix('admin')->middleware('auth:sanctum')->group(function () {
         Route::get('/users', [VerificationController::class, 'getAllUsers']);
         Route::get('/users/{id}', [VerificationController::class, 'getUserDetail']);
     });
-    Route::prefix('deed')->middleware('ability:admin')->group(function () {
+    Route::prefix('deed')->middleware('ability:notaris,admin')->group(function () {
         Route::get('/',        [DeedController::class, 'index']);
         Route::get('/{id}',    [DeedController::class, 'show']);
         Route::post('/',       [DeedController::class, 'store']);
@@ -112,6 +112,7 @@ Route::prefix('admin')->middleware('auth:sanctum')->group(function () {
 Route::prefix('notaris')->middleware('auth:sanctum')->group(function () {
     // hanya role user/admin yang boleh melihat
     Route::prefix('activity')->middleware('ability:notaris')->group(function () {
+        Route::get('/user/client',        [NotarisActivityController::class, 'getUsers']);
         Route::get('/',        [NotarisActivityController::class, 'index']);
         Route::get('/{id}',    [NotarisActivityController::class, 'show']);
         Route::post('/',       [NotarisActivityController::class, 'store']);

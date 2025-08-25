@@ -135,7 +135,8 @@ class NotarisActivityController extends Controller
                 'tracking_code'           => 'ACT-' . strtoupper(Str::random(8)),
                 'status_approval'         => 'pending',
                 'first_client_approval'   => 'pending',
-                'second_client_approval'  => $deed->is_double_client ? 'pending' : null,
+                // 'second_client_approval'  => $deed->is_double_client ? 'pending' : null,
+                'second_client_approval'  => 'pending',
             ];
 
             $activity = Activity::create($payload);
@@ -403,6 +404,43 @@ class NotarisActivityController extends Controller
             'success' => true,
             'message' => 'Aktivitas berhasil ditolak',
             'data'    => $activity
+        ], 200);
+    }
+
+    public function getUsers(Request $request)
+    {
+        $search  = $request->query('search');
+
+        $query = User::query()
+            ->select(['id', 'name', 'email', 'telepon', 'gender', 'status_verification', 'role_id'])
+            ->with(['identity:id,user_id,file_photo'])
+            ->where('role_id', 2) // hanya penghadap
+            ->where('status_verification', 'approved');
+
+        if ($search) {
+            $query->where(function ($w) use ($search) {
+                $w->where('name', 'like', "%{$search}%")
+                    ->orWhere('email', 'like', "%{$search}%");
+            });
+        }
+
+        $users = $query->orderBy('name')->get();
+
+        // kirim langsung sebagai opsi select {value,label}
+        $options = $users->map(function ($u) {
+            return [
+                'value'  => $u->id,
+                'label'  => $u->name . ' (' . $u->email . ')',
+                'name'   => $u->name,
+                'email'  => $u->email,
+                'avatar' => optional($u->identity)->file_photo,
+            ];
+        });
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Daftar klien terverifikasi berhasil diambil',
+            'data'    => $options,
         ], 200);
     }
 }

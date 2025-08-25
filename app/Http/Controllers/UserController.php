@@ -4,9 +4,11 @@ namespace App\Http\Controllers;
 
 use Log;
 use App\Models\User;
+use App\Models\Activity;
 use App\Models\Identity;
 use Illuminate\Support\Str;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Validator;
 use CloudinaryLabs\CloudinaryLaravel\Facades\Cloudinary;
@@ -19,7 +21,7 @@ class UserController extends Controller
         $perPage = $perPage > 0 ? $perPage : 10;
         $q = $request->query('q');
 
-        $query = User::where('role_id', '!=', 1);
+        $query = User::with(['roles', 'identity'])->where('role_id', '!=', 1);
 
         if ($q) {
             $query->where(function ($subQuery) use ($q) {
@@ -50,7 +52,7 @@ class UserController extends Controller
 
     public function getDetailUser(Request $request, $id)
     {
-        $user = User::where('id', $id)->first();
+        $user = User::with(['roles', 'identity'])->where('id', $id)->first();
 
         if (!$user) {
             return response()->json([
@@ -73,13 +75,28 @@ class UserController extends Controller
                 'status_verification' => $user->status_verification,
                 'notes_verification' => $user->notes_verification,
                 'created_at' => $user->created_at,
+                'identity' => [
+                    'ktp'              => $user->identity?->ktp,
+                    'npwp'             => $user->identity?->npwp,
+                    'ktp_notaris'      => $user->identity?->ktp_notaris,
+                    'file_ktp'         => $user->identity?->file_ktp,
+                    'file_kk'          => $user->identity?->file_kk,
+                    'file_npwp'        => $user->identity?->file_npwp,
+                    'file_ktp_notaris' => $user->identity?->file_ktp_notaris,
+                    'file_sign'        => $user->identity?->file_sign,
+                    'file_photo'       => $user->identity?->file_photo,
+                    'created_at'       => $user->identity?->created_at,
+                    'updated_at'       => $user->identity?->updated_at,
+                ]
             ]
         ], 200);
     }
 
     public function destroyUser(Request $request, $id)
     {
-        $user = User::find($id);
+        // Pastikan routes endpoint ini dibatasi ability:admin
+        $user = User::with(['identity', 'documentRequirements'])->find($id);
+
         if (!$user) {
             return response()->json([
                 'success' => false,
@@ -87,29 +104,77 @@ class UserController extends Controller
             ], 404);
         }
 
-        // Hapus avatar jika ada
-        if (!empty($user->file_avatar_path)) {
-            Cloudinary::destroy($user->file_avatar_path);
-        }
+        DB::beginTransaction();
+        try {
+            // 1) Hapus semua ACTIVITY yang mereferensikan user ini
+            Activity::where(function ($q) use ($user) {
+                $q->where('first_client_id',  $user->id)
+                    ->orWhere('second_client_id', $user->id)
+                    ->orWhere('user_notaris_id',  $user->id);
+            })->delete();
+            // NOTE: Jika tabel lain mereferensikan activity (child), pastikan FK-nya ON DELETE CASCADE,
+            // atau hapus child-nya dulu di sini.
 
+            // 2) Hapus DOCUMENT REQUIREMENTS milik user (kalau ada file ter-Cloudinary, bersihkan juga di sini)
+            //    Contoh ini hanya delete row; tambahkan Cloudinary::destroy() kalau ada path public_id.
+            $user->documentRequirements()->delete();
 
-        // Hapus data identitas jika ada
-        $identity = Identity::where('user_id', $user->id);
+            // 3) Hapus IDENTITY + file Cloudinary terkait
+            if ($user->identity) {
+                foreach (
+                    [
+                        'file_ktp_path',
+                        'file_kk_path',
+                        'file_npwp_path',
+                        'file_ktp_notaris_path',
+                        'file_sign_path',
+                        'file_photo_path', // ⬅️ jangan lupa foto formal
+                    ] as $field
+                ) {
+                    $publicId = $user->identity->{$field} ?? null;
+                    if (!empty($publicId)) {
+                        try {
+                            Cloudinary::destroy($publicId);
+                        } catch (\Throwable $e) {
+                            // optional: log
+                        }
+                    }
+                }
+                $user->identity()->delete();
+            }
 
-        if ($identity) {
-            foreach (['file_ktp_path', 'file_kk_path', 'file_npwp_path', 'file_ktp_notaris_path', 'file_sign_path'] as $field) {
-                if (!empty($identity->{$field})) {
-                    Cloudinary::destroy($identity->{$field});
+            // 4) Hapus avatar user di Cloudinary kalau ada
+            if (!empty($user->file_avatar_path)) {
+                try {
+                    Cloudinary::destroy($user->file_avatar_path);
+                } catch (\Throwable $e) {
+                    // optional: log
                 }
             }
-        }
-        $identity->delete();
-        $user->delete();
 
-        return response()->json([
-            'success' => true,
-            'message' => 'Pengguna berhasil dihapus',
-        ], 200);
+            // 5) (Optional) Revoke semua token Sanctum user
+            try {
+                $user->tokens()->delete();
+            } catch (\Throwable $e) {
+            }
+
+            // 6) Hapus user
+            $user->delete();
+
+            DB::commit();
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Pengguna beserta relasinya berhasil dihapus.',
+            ], 200);
+        } catch (\Throwable $e) {
+            DB::rollBack();
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Gagal menghapus pengguna. ' . $e->getMessage(),
+            ], 500);
+        }
     }
 
 
@@ -138,16 +203,17 @@ class UserController extends Controller
 
                 // Data Identity
                 'identity' => [
-                    'ktp' => $identity->ktp,
-                    'npwp' => $identity->npwp,
-                    'ktp_notaris' => $identity->ktp_notaris,
-                    'file_ktp' => $identity->file_ktp,
-                    'file_kk' => $identity->file_kk,
-                    'file_npwp' => $identity->file_npwp,
-                    'file_ktp_notaris' => $identity->file_ktp_notaris,
-                    'file_sign' => $identity->file_sign,
-                    'created_at' => $identity->created_at,
-                    'updated_at' => $identity->updated_at,
+                    'ktp'              => $identity?->ktp,
+                    'npwp'             => $identity?->npwp,
+                    'ktp_notaris'      => $identity?->ktp_notaris,
+                    'file_ktp'         => $identity?->file_ktp,
+                    'file_kk'          => $identity?->file_kk,
+                    'file_npwp'        => $identity?->file_npwp,
+                    'file_ktp_notaris' => $identity?->file_ktp_notaris,
+                    'file_sign'        => $identity?->file_sign,
+                    'file_photo'       => $identity?->file_photo,
+                    'created_at'       => $identity?->created_at,
+                    'updated_at'       => $identity?->updated_at,
                 ]
             ]
         ], 200);
@@ -227,126 +293,150 @@ class UserController extends Controller
         ], 200);
     }
 
-
     public function updateIdentityProfile(Request $request)
     {
-        // Tambahkan validasi yang lebih ketat
+        // Validasi (PDF diperbolehkan untuk KTP/KK/NPWP/KTP Notaris → JANGAN pakai 'image')
         $validator = Validator::make($request->all(), [
-            'ktp' => 'required|string|max:16', // WAJIB
-            'npwp' => 'sometimes|string|max:15',
-            'ktp_notaris' => 'sometimes|string|max:16',
-            'file_ktp' => 'required|file|image|mimes:jpg,jpeg,png,pdf|max:2048', // WAJIB
-            'file_kk' => 'required|file|image|mimes:jpg,jpeg,png,pdf|max:2048', // WAJIB
-            'file_npwp' => 'sometimes|file|image|mimes:jpg,jpeg,png,pdf|max:2048',
-            'file_ktp_notaris' => 'sometimes|file|image|mimes:jpg,jpeg,png,pdf|max:2048',
-            'file_sign' => 'required|file|image|mimes:png|max:1024', // WAJIB dan hanya PNG
+            'ktp'            => 'required|string|max:16',
+            'npwp'           => 'sometimes|nullable|string|max:20',
+            'ktp_notaris'    => 'sometimes|nullable|string|max:16',
+
+            // kalau izinkan pdf, hapus 'image', cukup 'mimes' atau 'mimetypes'
+            'file_ktp'         => 'sometimes|file|mimes:jpg,jpeg,png,pdf|max:2048',
+            'file_kk'          => 'sometimes|file|mimes:jpg,jpeg,png,pdf|max:2048',
+            'file_npwp'        => 'sometimes|file|mimes:jpg,jpeg,png,pdf|max:2048',
+            'file_ktp_notaris' => 'sometimes|file|mimes:jpg,jpeg,png,pdf|max:2048',
+            // tanda tangan wajib PNG
+            'file_sign'        => 'sometimes|file|mimes:png|max:1024',
+            // foto formal hanya image (tanpa pdf)
+            'file_photo'       => 'sometimes|file|mimes:jpg,jpeg,png|max:2048',
         ]);
 
         if ($validator->fails()) {
             return response()->json([
                 'success' => false,
                 'message' => 'Validasi gagal',
-                'errors' => $validator->errors()
+                'errors'  => $validator->errors(),
             ], 422);
         }
 
         try {
             $user = Auth::user();
 
-            // Cek apakah identity sudah ada
-            $identity = Identity::where('user_id', $user->id)->first();
+            return DB::transaction(function () use ($request, $user) {
 
-            if (!$identity) {
-                $identity = new Identity();
-                $identity->user_id = $user->id;
-            }
+                // ambil / buat identity
+                $identity = \App\Models\Identity::where('user_id', $user->id)->first();
+                if (!$identity) {
+                    $identity = new \App\Models\Identity();
+                    $identity->user_id = $user->id;
+                }
 
-            // Update field biasa
-            $identity->ktp = $request->ktp ?? $identity->ktp;
-            $identity->npwp = $request->npwp ?? $identity->npwp;
-            $identity->ktp_notaris = $request->ktp_notaris ?? $identity->ktp_notaris;
+                $hasChanges = false;
 
-            // === Upload files ke Cloudinary dengan timeout dan error handling ===
-            $fileFields = [
-                'file_ktp' => 'ktp',
-                'file_kk' => 'kk',
-                'file_npwp' => 'npwp',
-                'file_ktp_notaris' => 'ktp_notaris',
-                'file_sign' => 'sign'
-            ];
+                // --- update field sederhana
+                if ($request->filled('ktp') && $request->ktp !== $identity->ktp) {
+                    $identity->ktp = $request->ktp;
+                    $hasChanges = true;
+                }
+                if ($request->has('npwp') && $request->npwp !== $identity->npwp) {
+                    $identity->npwp = $request->npwp;
+                    $hasChanges = true;
+                }
+                if ($request->has('ktp_notaris') && $request->ktp_notaris !== $identity->ktp_notaris) {
+                    $identity->ktp_notaris = $request->ktp_notaris;
+                    $hasChanges = true;
+                }
 
-            foreach ($fileFields as $fileField => $folder) {
-                if ($request->hasFile($fileField)) {
-                    try {
-                        // Hapus file lama jika ada
+                // --- upload helper
+                $fileFields = [
+                    'file_ktp'         => 'ktp',
+                    'file_kk'          => 'kk',
+                    'file_npwp'        => 'npwp',
+                    'file_ktp_notaris' => 'ktp_notaris',
+                    'file_sign'        => 'sign',
+                    'file_photo'       => 'photo',
+                ];
+
+                foreach ($fileFields as $fileField => $folder) {
+                    if ($request->hasFile($fileField)) {
+                        // hapus lama kalau ada
                         $pathField = $fileField . '_path';
                         if (!empty($identity->{$pathField})) {
                             try {
                                 Cloudinary::destroy($identity->{$pathField});
                             } catch (\Exception $e) {
-
                                 return response()->json([
                                     'success' => false,
-                                    'message' => 'Terjadi kesalahan sistem. Silakan coba lagi.'
+                                    'message' => 'Terjadi kesalahan saat menghapus file lama.',
                                 ], 500);
                             }
                         }
 
-                        // Upload file baru dengan konfigurasi timeout
+                        // upload baru
                         $uploaded = Cloudinary::upload(
                             $request->file($fileField)->getRealPath(),
                             [
-                                'folder' => "enotaris/users/{$user->id}/identity/{$folder}",
-                                'public_id' => $folder . '_' . time() . '_' . Str::random(8),
-                                'overwrite' => true,
-                                'resource_type' => 'auto', // auto detect image/raw
-                                'timeout' => 30, // timeout 30 detik per file
-                                'quality' => 'auto:good', // compress otomatis
+                                'folder'       => "enotaris/users/{$user->id}/identity/{$folder}",
+                                'public_id'    => $folder . '_' . time() . '_' . Str::random(8),
+                                'overwrite'    => true,
+                                'resource_type' => 'auto',
+                                'timeout'      => 30,
+                                'quality'      => 'auto:good',
                             ]
                         );
 
-                        // Simpan URL dan path
                         $identity->{$fileField} = $uploaded->getSecurePath();
                         $identity->{$pathField} = $uploaded->getPublicId();
-                    } catch (\Exception $e) {
-                        return response()->json([
-                            'success' => false,
-                            'message' => "Gagal mengupload {$fileField}: " . $e->getMessage()
-                        ], 500);
+                        $hasChanges = true;
                     }
                 }
-            }
 
-            $identity->save();
+                // simpan identity
+                $identity->save();
 
-            return response()->json([
-                'success' => true,
-                'message' => 'Profil identitas berhasil diperbarui',
-                'data' => [
-                    'id' => $user->id,
-                    'name' => $user->name,
-                    'email' => $user->email,
-                    'telepon' => $user->telepon,
-                    'gender' => $user->gender,
-                    'address' => $user->address,
-                    'file_avatar' => $user->file_avatar,
-                    'file_avatar_path' => $user->file_avatar_path,
+                // --- SET STATUS VERIFIKASI KE PENDING JIKA ADA PERUBAHAN
+                if ($hasChanges && $user->status_verification !== 'pending') {
+                    $user->status_verification = 'pending';
+                    $user->notes_verification  = null; // kosongkan catatan lama
+                    $user->save(); // PENTING: simpan user!
+                }
 
-                    'ktp' => $identity->ktp,
-                    'file_ktp' => $identity->file_ktp,
-                    'file_ktp_path' => $identity->file_ktp_path,
-                    'file_kk' => $identity->file_kk,
-                    'file_kk_path' => $identity->file_kk_path,
-                    'npwp' => $identity->npwp,
-                    'file_npwp' => $identity->file_npwp,
-                    'file_npwp_path' => $identity->file_npwp_path,
-                    'ktp_notaris' => $identity->ktp_notaris,
-                    'file_ktp_notaris' => $identity->file_ktp_notaris,
-                    'file_ktp_notaris_path' => $identity->file_ktp_notaris_path,
-                    'file_sign' => $identity->file_sign,
-                    'file_sign_path' => $identity->file_sign_path,
-                ]
-            ], 200);
+                return response()->json([
+                    'success' => true,
+                    'message' => 'Profil identitas berhasil diperbarui',
+                    'data' => [
+                        'id'                 => $user->id,
+                        'name'               => $user->name,
+                        'email'              => $user->email,
+                        'telepon'            => $user->telepon,
+                        'gender'             => $user->gender,
+                        'address'            => $user->address,
+                        'file_avatar'        => $user->file_avatar,
+                        'file_avatar_path'   => $user->file_avatar_path,
+
+                        'ktp'                => $identity->ktp,
+                        'file_ktp'           => $identity->file_ktp,
+                        'file_ktp_path'      => $identity->file_ktp_path,
+                        'file_kk'            => $identity->file_kk,
+                        'file_kk_path'       => $identity->file_kk_path,
+                        'npwp'               => $identity->npwp,
+                        'file_npwp'          => $identity->file_npwp,
+                        'file_npwp_path'     => $identity->file_npwp_path,
+                        'ktp_notaris'        => $identity->ktp_notaris,
+                        'file_ktp_notaris'   => $identity->file_ktp_notaris,
+                        'file_ktp_notaris_path' => $identity->file_ktp_notaris_path,
+                        'file_sign'          => $identity->file_sign,
+                        'file_sign_path'     => $identity->file_sign_path,
+                        'file_photo'         => $identity->file_photo,
+                        'file_photo_path'    => $identity->file_photo_path,
+
+                        // tambahkan status user sekarang kalau perlu di FE
+                        'status_verification' => $user->status_verification,
+                        'notes_verification' => $user->notes_verification,
+                    ],
+                ], 200);
+            });
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,

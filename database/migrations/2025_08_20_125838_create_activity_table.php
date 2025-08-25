@@ -23,7 +23,7 @@ return new class extends Migration
             $table->string('tracking_code', 255);
             $table->timestamps();
 
-            // FK (perhatikan NAMA kolomnya benar)
+            
             $table->foreign('deed_id')->references('id')->on('deeds')->cascadeOnUpdate();
             $table->foreign('user_notaris_id')->references('id')->on('users')->cascadeOnUpdate();
             $table->foreign('first_client_id')->references('id')->on('users')->cascadeOnUpdate();
