@@ -112,6 +112,7 @@ Route::prefix('admin')->middleware('auth:sanctum')->group(function () {
 Route::prefix('notaris')->middleware('auth:sanctum')->group(function () {
     // hanya role user/admin yang boleh melihat
     Route::prefix('activity')->middleware('ability:notaris')->group(function () {
+        Route::get('/user/approved',        [NotarisActivityController::class, 'getByUserApproved']);
         Route::get('/user/client',        [NotarisActivityController::class, 'getUsers']);
         Route::get('/',        [NotarisActivityController::class, 'index']);
         Route::get('/{id}',    [NotarisActivityController::class, 'show']);

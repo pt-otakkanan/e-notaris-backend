@@ -106,8 +106,11 @@ class ScheduleController extends Controller
             'activity_id' => 'required|integer|exists:activity,id',
             'date'        => 'required|date_format:Y-m-d',
             'time'        => 'required|date_format:H:i',
+            'location'       => 'nullable|string|max:500',
             'notes'       => 'nullable|string|max:500',
         ], [
+            'location.string'         => 'Lokasi harus berupa teks.',
+            'location.max'            => 'Lokasi maksimal 500 karakter.',
             'activity_id.required' => 'Activity wajib diisi.',
             'activity_id.integer'  => 'Activity tidak valid.',
             'activity_id.exists'   => 'Activity tidak ditemukan.',
@@ -155,8 +158,11 @@ class ScheduleController extends Controller
             'activity_id' => 'required|integer|exists:activity,id',
             'date'        => 'required|date_format:Y-m-d',
             'time'        => 'required|date_format:H:i',
+            'location'       => 'nullable|string|max:500',
             'notes'       => 'nullable|string|max:500',
         ], [
+            'location.string'         => 'Lokasi harus berupa teks.',
+            'location.max'            => 'Lokasi maksimal 500 karakter.',
             'activity_id.required' => 'Activity wajib diisi.',
             'activity_id.integer'  => 'Activity tidak valid.',
             'activity_id.exists'   => 'Activity tidak ditemukan.',
@@ -178,7 +184,7 @@ class ScheduleController extends Controller
 
         $data = $validasi->validated();
 
-        foreach (['activity_id', 'date', 'time', 'notes'] as $f) {
+        foreach (['activity_id', 'date', 'time', 'notes', 'location'] as $f) {
             if (array_key_exists($f, $data)) {
                 $schedule->{$f} = $data[$f];
             }
