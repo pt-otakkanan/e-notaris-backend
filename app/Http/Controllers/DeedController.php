@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Deed;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
 
 class DeedController extends Controller
@@ -164,7 +165,8 @@ class DeedController extends Controller
      */
     public function destroy($id)
     {
-        $deed = Deed::find($id);
+        $deed = Deed::with(['requirements', 'activities', 'mainValueDeeds'])->find($id);
+
         if (!$deed) {
             return response()->json([
                 'success' => false,
@@ -173,21 +175,26 @@ class DeedController extends Controller
             ], 404);
         }
 
-        // Cek relasi sebelum hapus
-        if ($deed->activities()->exists() || $deed->requirements()->exists()) {
+        try {
+            DB::transaction(function () use ($deed) {
+                $deed->requirements()->delete();
+                $deed->mainValueDeeds()->delete();
+                $deed->activities()->delete();
+
+                // Terakhir: hapus Deed
+                $deed->delete();
+            });
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Akta beserta relasinya berhasil dihapus',
+                'data'    => null
+            ], 200);
+        } catch (\Throwable $e) {
             return response()->json([
                 'success' => false,
-                'message' => 'Akta tidak dapat dihapus karena masih memiliki data terkait (activities/requirements).',
-                'data'    => null
-            ], 409); // Conflict
+                'message' => 'Gagal menghapus akta: ' . $e->getMessage(),
+            ], 500);
         }
-
-        $deed->delete();
-
-        return response()->json([
-            'success' => true,
-            'message' => 'Akta berhasil dihapus',
-            'data'    => null
-        ], 200);
     }
 }
