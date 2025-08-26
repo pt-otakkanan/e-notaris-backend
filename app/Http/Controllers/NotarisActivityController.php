@@ -2,12 +2,15 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\Activity;
 use App\Models\Deed;
 use App\Models\User;
-use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Validator;
+use App\Models\Activity;
 use Illuminate\Support\Str;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use App\Models\DocumentRequirement;
+use Illuminate\Support\Facades\Validator;
+use CloudinaryLabs\CloudinaryLaravel\Facades\Cloudinary;
 
 class NotarisActivityController extends Controller
 {
@@ -23,7 +26,7 @@ class NotarisActivityController extends Controller
         $perPage  = (int)($request->query('per_page', 10));
         $perPage  = $perPage > 0 ? $perPage : 10;
 
-        $query = Activity::with(['deed', 'notaris', 'firstClient', 'secondClient']);
+        $query = Activity::with(['deed', 'notaris', 'firstClient', 'secondClient', 'schedules']);
         $query->where('user_notaris_id', $user->id);
         // Search by tracking code or deed name
         if ($search) {
@@ -37,7 +40,7 @@ class NotarisActivityController extends Controller
 
         // Filter by status
         if ($status && in_array($status, ['pending', 'approved', 'rejected'])) {
-            $query->where('status_approval', $status);
+            $query->where('first_client_approval', $status)->orWhere('second_client_approval', $status);
         }
 
         $activities = $query->orderBy('created_at', 'desc')->paginate($perPage);
@@ -66,8 +69,6 @@ class NotarisActivityController extends Controller
             'notaris',
             'firstClient',
             'secondClient',
-            'documentRequirements',
-            'draftDeeds',
             'schedules'
         ])->where('id', $id)
             ->where('user_notaris_id', $user->id) // Pastikan hanya mengambil aktivitas milik notaris ini
@@ -88,10 +89,6 @@ class NotarisActivityController extends Controller
         ], 200);
     }
 
-    /**
-     * POST /activities
-     * Body: deed_id, user_notaris_id, first_client_id, second_client_id (optional)
-     */
     public function store(Request $request)
     {
         $user = $request->user();
@@ -117,8 +114,8 @@ class NotarisActivityController extends Controller
 
         $data = $validasi->validated();
 
-        // Cek apakah deed memerlukan double client
-        $deed = Deed::find($data['deed_id']);
+        // Cek is_double_client
+        $deed = Deed::with('requirements')->find($data['deed_id']);
         if ($deed->is_double_client && !$request->has('second_client_id')) {
             return response()->json([
                 'success' => false,
@@ -127,23 +124,68 @@ class NotarisActivityController extends Controller
             ], 422);
         }
 
-        // Generate tracking code
-        $data['tracking_code'] = 'ACT-' . strtoupper(Str::random(8));
-        $data['activity_notaris_id'] = $user->id;
-        $data['status_approval'] = 'pending';
-        $data['user_notaris_id'] = $user->id;
-        $data['first_client_approval'] = 'pending';
-        $data['second_client_approval'] = 'pending';
+        return DB::transaction(function () use ($user, $deed, $data) {
+            // Buat Activity
+            $payload = [
+                'deed_id'                 => $deed->id,
+                'user_notaris_id'         => $user->id,
+                'activity_notaris_id'     => $user->id,
+                'first_client_id'         => $data['first_client_id'],
+                'second_client_id'        => $data['second_client_id'] ?? null,
+                'tracking_code'           => 'ACT-' . strtoupper(Str::random(8)),
+                'status_approval'         => 'pending',
+                'first_client_approval'   => 'pending',
+                'second_client_approval'  => $deed->is_double_client ? 'pending' : null,
+            ];
 
-        $activity = Activity::create($data);
-        $activity->load(['deed', 'notaris', 'firstClient', 'secondClient']);
+            $activity = Activity::create($payload);
 
-        return response()->json([
-            'success' => true,
-            'message' => 'Aktivitas berhasil dibuat',
-            'data'    => $activity,
-        ], 201);
+            // Tentukan target user
+            $targets = [$activity->first_client_id];
+            if ($deed->is_double_client && $activity->second_client_id) {
+                $targets[] = $activity->second_client_id;
+            }
+
+            // Buat DocumentRequirement kosong sesuai Requirement
+            $rows = [];
+            $now  = now();
+
+            foreach ($deed->requirements as $req) {
+                foreach ($targets as $uid) {
+                    $rows[] = [
+                        'activity_notaris_id' => $activity->id,
+                        'user_id'             => $uid,
+                        'requirement_id'      => $req->id,
+                        'requirement_name'    => $req->name,
+                        'is_file_snapshot'    => (bool)$req->is_file,
+                        'value'               => null,
+                        'file'                => null,
+                        'file_path'           => null,
+                        'status_approval'     => 'pending'
+                    ];
+                }
+            }
+
+            if (!empty($rows)) {
+                DocumentRequirement::insert($rows);
+            }
+
+            $activity->load([
+                'deed.requirements',
+                'notaris',
+                'firstClient',
+                'secondClient',
+                'documentRequirements.requirement'
+            ]);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Aktivitas & dokumen persyaratan berhasil dibuat',
+                'data'    => $activity,
+            ], 201);
+        });
     }
+
 
     /**
      * PUT /activities/{id}
@@ -216,6 +258,13 @@ class NotarisActivityController extends Controller
             $activity->{$key} = $value;
         }
 
+        $activity->first_client_approval = 'pending'; // Reset approval klien pertama
+        if ($activity->second_client_id) {
+            $activity->second_client_approval = 'pending'; // Reset approval klien kedua jika ada
+        } else {
+            $activity->second_client_approval = null; // Pastikan null jika tidak ada klien kedua
+        }
+
         $activity->save();
         $activity->load(['deed', 'notaris', 'firstClient', 'secondClient']);
 
@@ -233,9 +282,11 @@ class NotarisActivityController extends Controller
     public function destroy(Request $request, $id)
     {
         $user = $request->user();
+
         $activity = Activity::where('id', $id)
-            ->where('user_notaris_id', $user->id) // Pastikan hanya menghapus aktivitas milik notaris ini
+            ->where('user_notaris_id', $user->id) // hanya milik notaris ini
             ->first();
+
         if (!$activity) {
             return response()->json([
                 'success' => false,
@@ -244,27 +295,66 @@ class NotarisActivityController extends Controller
             ], 404);
         }
 
-        // Cek relasi sebelum hapus
+        // Blokir kalau ada yang sudah approved
         if (
-            $activity->documentRequirements()->exists() ||
-            $activity->draftDeeds()->exists() ||
-            $activity->schedules()->exists()
+            $activity->status_approval === 'approved'
+            || $activity->first_client_approval === 'approved'
+            || $activity->second_client_approval === 'approved'
         ) {
             return response()->json([
                 'success' => false,
-                'message' => 'Aktivitas tidak dapat dihapus karena masih memiliki data terkait (documents/drafts/schedules).',
+                'message' => 'Aktivitas yang sudah disetujui tidak dapat dihapus.',
                 'data'    => null
-            ], 409); // Conflict
+            ], 409);
         }
 
-        $activity->delete();
+        try {
+            DB::beginTransaction();
 
-        return response()->json([
-            'success' => true,
-            'message' => 'Aktivitas berhasil dihapus',
-            'data'    => null
-        ], 200);
+            // 1) Hapus DocumentRequirement (hapus file Cloudinary jika ada)
+            $activity->documentRequirements()
+                ->select(['id', 'file_path']) // ambil yang perlu saja
+                ->chunkById(200, function ($docs) {
+                    foreach ($docs as $doc) {
+                        if (!empty($doc->file_path)) {
+                            try {
+                                Cloudinary::destroy($doc->file_path);
+                            } catch (\Throwable $e) {
+                                // lanjut hapus DB meski file gagal dihapus
+                            }
+                        }
+                        // Hapus baris doc satu per satu (aman untuk event/observer)
+                        DocumentRequirement::where('id', $doc->id)->delete();
+                    }
+                });
+
+            // 2) Hapus DraftDeed (kalau punya file, tambahkan logic destroy seperti di atas)
+            $activity->draftDeeds()->delete();
+
+            // 3) Hapus Schedules
+            $activity->schedules()->delete();
+
+            // 4) Terakhir, hapus Activity
+            $activity->delete();
+
+            DB::commit();
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Aktivitas dan seluruh data terkait berhasil dihapus',
+                'data'    => null
+            ], 200);
+        } catch (\Throwable $e) {
+            DB::rollBack();
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Terjadi kesalahan saat menghapus aktivitas.',
+                'data'    => null
+            ], 500);
+        }
     }
+
 
     /**
      * PUT /activities/{id}/approve
@@ -312,65 +402,6 @@ class NotarisActivityController extends Controller
         return response()->json([
             'success' => true,
             'message' => 'Aktivitas berhasil ditolak',
-            'data'    => $activity
-        ], 200);
-    }
-
-    /**
-     * PUT /activities/{id}/client-approve
-     * Update client approval status
-     * Body: client_type (first|second), approval_status (approved|rejected)
-     */
-    public function clientApprove(Request $request, $id)
-    {
-        $activity = Activity::find($id);
-        if (!$activity) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Aktivitas tidak ditemukan',
-                'data'    => null
-            ], 404);
-        }
-
-        $validasi = Validator::make($request->all(), [
-            'client_type' => 'required|in:first,second',
-            'approval_status' => 'required|in:approved,rejected',
-        ], [
-            'client_type.required' => 'Tipe klien wajib diisi.',
-            'client_type.in' => 'Tipe klien harus first atau second.',
-            'approval_status.required' => 'Status approval wajib diisi.',
-            'approval_status.in' => 'Status approval harus approved atau rejected.',
-        ]);
-
-        if ($validasi->fails()) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Proses validasi gagal',
-                'data'    => $validasi->errors(),
-            ], 422);
-        }
-
-        $clientType = $request->client_type;
-        $approvalStatus = $request->approval_status;
-
-        if ($clientType === 'first') {
-            $activity->first_client_approval = $approvalStatus;
-        } else {
-            if (!$activity->second_client_id) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Aktivitas ini tidak memiliki klien kedua',
-                    'data'    => null
-                ], 422);
-            }
-            $activity->second_client_approval = $approvalStatus;
-        }
-
-        $activity->save();
-
-        return response()->json([
-            'success' => true,
-            'message' => 'Status approval klien berhasil diperbarui',
             'data'    => $activity
         ], 200);
     }

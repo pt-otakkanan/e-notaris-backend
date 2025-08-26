@@ -18,7 +18,7 @@ class DeedController extends Controller
         $perPage  = (int)($request->query('per_page', 10));
         $perPage  = $perPage > 0 ? $perPage : 10;
 
-        $query = Deed::query();
+        $query = Deed::with('requirements');
 
         if ($q) {
             $query->where(function ($sub) use ($q) {

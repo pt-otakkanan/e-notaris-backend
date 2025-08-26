@@ -13,7 +13,11 @@ class DocumentRequirement extends Model
 
     protected $fillable = [
         'activity_notaris_id',
+        'requirement_id',
+        'requirement_name',
+        'is_file_snapshot',
         'user_id',
+        'value',
         'file',
         'file_path',
         'status_approval'
@@ -31,6 +35,11 @@ class DocumentRequirement extends Model
     public function user()
     {
         return $this->belongsTo(User::class);
+    }
+
+    public function requirement()
+    {
+        return $this->belongsTo(Requirement::class);
     }
 
     // Scopes
