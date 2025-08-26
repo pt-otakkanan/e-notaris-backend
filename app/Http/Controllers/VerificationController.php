@@ -93,8 +93,9 @@ class VerificationController extends Controller
                     'file_npwp' => $identity->file_npwp,
                     'file_ktp_notaris' => $identity->file_ktp_notaris,
                     'file_sign' => $identity->file_sign,
-                    'verification_status' => $identity->verification_status,
-                    'verification_notes' => $identity->verification_notes,
+                    'file_photo' => $identity->file_photo,
+                    'verification_status' => $identity->user->status_verification,
+                    'verification_notes' => $identity->user->notes_verification,
                     'updated_at' => $identity->updated_at,
                 ];
             });
@@ -155,8 +156,9 @@ class VerificationController extends Controller
                     'file_npwp' => $identity->file_npwp,
                     'file_ktp_notaris' => $identity->file_ktp_notaris,
                     'file_sign' => $identity->file_sign,
-                    'verification_status' => $identity->verification_status,
-                    'verification_notes' => $identity->verification_notes,
+                    'file_photo' => $identity->file_photo,
+                    'verification_status' => $identity->user->status_verification,
+                    'verification_notes' => $identity->user->notes_verification,
                     'updated_at' => $identity->updated_at,
                 ];
             });
@@ -217,8 +219,9 @@ class VerificationController extends Controller
                     'file_npwp' => $identity->file_npwp,
                     'file_ktp_notaris' => $identity->file_ktp_notaris,
                     'file_sign' => $identity->file_sign,
-                    'verification_status' => $identity->verification_status,
-                    'verification_notes' => $identity->verification_notes,
+                    'file_photo' => $identity->file_photo,
+                    'verification_status' => $identity->user->status_verification,
+                    'verification_notes' => $identity->user->notes_verification,
                     'updated_at' => $identity->updated_at,
                 ];
             });
@@ -279,8 +282,9 @@ class VerificationController extends Controller
                     'file_npwp' => $identity->file_npwp,
                     'file_ktp_notaris' => $identity->file_ktp_notaris,
                     'file_sign' => $identity->file_sign,
-                    'verification_status' => $identity->verification_status,
-                    'verification_notes' => $identity->verification_notes,
+                    'file_photo' => $identity->file_photo,
+                    'verification_status' => $identity->user->status_verification,
+                    'verification_notes' => $identity->user->notes_verification,
                     'updated_at' => $identity->updated_at,
                 ];
             });
@@ -339,8 +343,9 @@ class VerificationController extends Controller
                     'file_npwp' => $identity->file_npwp,
                     'file_ktp_notaris' => $identity->file_ktp_notaris,
                     'file_sign' => $identity->file_sign,
-                    'verification_status' => $identity->verification_status,
-                    'verification_notes' => $identity->verification_notes,
+                    'file_photo' => $identity->file_photo,
+                    'verification_status' => $identity->user->status_verification,
+                    'verification_notes' => $identity->user->notes_verification,
                     'updated_at' => $identity->updated_at,
                 ];
             });
@@ -415,6 +420,7 @@ class VerificationController extends Controller
                         'file_npwp' => $identity->file_npwp,
                         'file_ktp_notaris' => $identity->file_ktp_notaris,
                         'file_sign' => $identity->file_sign,
+                        'file_photo' => $identity->file_photo,
                         'created_at' => $identity->created_at,
                         'updated_at' => $identity->updated_at,
                     ]

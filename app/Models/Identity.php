@@ -24,7 +24,9 @@ class Identity extends Model
         'file_ktp_notaris',
         'file_ktp_notaris_path',
         'file_sign',
-        'file_sign_path'
+        'file_sign_path',
+        'file_photo',
+        'file_photo_path',
     ];
 
     public function user()

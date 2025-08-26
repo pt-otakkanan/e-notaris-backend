@@ -14,33 +14,79 @@ use CloudinaryLabs\CloudinaryLaravel\Facades\Cloudinary;
 
 class NotarisActivityController extends Controller
 {
-    /**
-     * GET /activities
-     * Query opsional: search, status, page, per_page
-     */
     public function index(Request $request)
     {
         $user = $request->user();
-        $search   = $request->query('search');
-        $status   = $request->query('status');
-        $perPage  = (int)($request->query('per_page', 10));
-        $perPage  = $perPage > 0 ? $perPage : 10;
+        $search = $request->query('search');
+        $approvalStatus = $request->query('status'); // Ganti dari 'status' ke 'approval_status' untuk clarity
+        $perPage = (int)($request->query('per_page', 10));
+        $perPage = $perPage > 0 ? $perPage : 10;
 
-        $query = Activity::with(['deed', 'notaris', 'firstClient', 'secondClient', 'schedules']);
-        $query->where('user_notaris_id', $user->id);
-        // Search by tracking code or deed name
+        $query = Activity::with(['deed', 'notaris', 'firstClient', 'secondClient', 'schedules'])
+            ->where('user_notaris_id', $user->id);
+
+        // Search by tracking code, activity name, or deed name
         if ($search) {
             $query->where(function ($sub) use ($search) {
                 $sub->where('tracking_code', 'like', "%{$search}%")
+                    ->orWhere('name', 'like', "%{$search}%")
                     ->orWhereHas('deed', function ($deedQuery) use ($search) {
                         $deedQuery->where('name', 'like', "%{$search}%");
                     });
             });
         }
 
-        // Filter by status
-        if ($status && in_array($status, ['pending', 'approved', 'rejected'])) {
-            $query->where('first_client_approval', $status)->orWhere('second_client_approval', $status);
+        // Filter by approval status
+        if ($approvalStatus && in_array($approvalStatus, ['pending', 'approved', 'rejected'])) {
+            $query->where(function ($statusQuery) use ($approvalStatus) {
+
+                if ($approvalStatus === 'approved') {
+                    // Untuk status approved: semua penghadap yang diperlukan harus approved
+                    $statusQuery->where(function ($approvedQuery) {
+                        $approvedQuery->whereHas('deed', function ($deedQuery) {
+                            // Jika double client, kedua penghadap harus approved
+                            $deedQuery->where('is_double_client', true);
+                        })
+                            ->where('first_client_approval', 'approved')
+                            ->where('second_client_approval', 'approved')
+                            ->orWhere(function ($singleQuery) {
+                                // Jika single client, hanya first client yang perlu approved
+                                $singleQuery->whereHas('deed', function ($deedQuery) {
+                                    $deedQuery->where('is_double_client', false);
+                                })
+                                    ->where('first_client_approval', 'approved');
+                            });
+                    });
+                } elseif ($approvalStatus === 'rejected') {
+                    // Untuk status rejected: setidaknya satu penghadap rejected
+                    $statusQuery->where('first_client_approval', 'rejected')
+                        ->orWhere('second_client_approval', 'rejected');
+                } elseif ($approvalStatus === 'pending') {
+                    // Untuk status pending: setidaknya satu penghadap masih pending
+                    // DAN tidak ada yang rejected (karena jika ada rejected, statusnya bukan pending lagi)
+                    $statusQuery->where(function ($pendingQuery) {
+                        $pendingQuery->where(function ($condition1) {
+                            // Double client: belum semua approved DAN tidak ada yang rejected
+                            $condition1->whereHas('deed', function ($deedQuery) {
+                                $deedQuery->where('is_double_client', true);
+                            })
+                                ->where(function ($doubleCondition) {
+                                    $doubleCondition->where('first_client_approval', 'pending')
+                                        ->orWhere('second_client_approval', 'pending');
+                                })
+                                ->where('first_client_approval', '!=', 'rejected')
+                                ->where('second_client_approval', '!=', 'rejected');
+                        })
+                            ->orWhere(function ($condition2) {
+                                // Single client: masih pending
+                                $condition2->whereHas('deed', function ($deedQuery) {
+                                    $deedQuery->where('is_double_client', false);
+                                })
+                                    ->where('first_client_approval', 'pending');
+                            });
+                    });
+                }
+            });
         }
 
         $activities = $query->orderBy('created_at', 'desc')->paginate($perPage);
@@ -48,12 +94,14 @@ class NotarisActivityController extends Controller
         return response()->json([
             'success' => true,
             'message' => 'Daftar aktivitas berhasil diambil',
-            'data'    => $activities->items(),
-            'meta'    => [
+            'data' => $activities->items(),
+            'meta' => [
                 'current_page' => $activities->currentPage(),
-                'per_page'     => $activities->perPage(),
-                'total'        => $activities->total(),
-                'last_page'    => $activities->lastPage(),
+                'per_page' => $activities->perPage(),
+                'total' => $activities->total(),
+                'last_page' => $activities->lastPage(),
+                'from' => $activities->firstItem(),
+                'to' => $activities->lastItem(),
             ]
         ], 200);
     }
@@ -67,8 +115,8 @@ class NotarisActivityController extends Controller
         $activity = Activity::with([
             'deed',
             'notaris',
-            'firstClient',
-            'secondClient',
+            'firstClient.identity',
+            'secondClient.identity',
             'schedules'
         ])->where('id', $id)
             ->where('user_notaris_id', $user->id) // Pastikan hanya mengambil aktivitas milik notaris ini
@@ -93,10 +141,14 @@ class NotarisActivityController extends Controller
     {
         $user = $request->user();
         $validasi = Validator::make($request->all(), [
+            'name'             => 'required|string|max:255',
             'deed_id'          => 'required|exists:deeds,id',
             'first_client_id'  => 'required|exists:users,id,role_id,2',
             'second_client_id' => 'nullable|exists:users,id,role_id,2',
         ], [
+            'name.required'             => 'Nama akta wajib diisi.',
+            'name.string'               => 'Nama akta harus berupa teks.',
+            'name.max'                  => 'Nama akta maksimal 255 karakter.',
             'deed_id.required'          => 'ID akta wajib diisi.',
             'deed_id.exists'            => 'Akta yang dipilih tidak valid.',
             'first_client_id.required'  => 'ID klien pertama wajib diisi.',
@@ -127,6 +179,7 @@ class NotarisActivityController extends Controller
         return DB::transaction(function () use ($user, $deed, $data) {
             // Buat Activity
             $payload = [
+                'name'                    => $data['name'],
                 'deed_id'                 => $deed->id,
                 'user_notaris_id'         => $user->id,
                 'activity_notaris_id'     => $user->id,
@@ -135,7 +188,8 @@ class NotarisActivityController extends Controller
                 'tracking_code'           => 'ACT-' . strtoupper(Str::random(8)),
                 'status_approval'         => 'pending',
                 'first_client_approval'   => 'pending',
-                'second_client_approval'  => $deed->is_double_client ? 'pending' : null,
+                // 'second_client_approval'  => $deed->is_double_client ? 'pending' : null,
+                'second_client_approval'  => 'pending',
             ];
 
             $activity = Activity::create($payload);
@@ -205,6 +259,7 @@ class NotarisActivityController extends Controller
         }
 
         $validasi = Validator::make($request->all(), [
+            'name'             => 'sometimes|required|string|max:255',
             'deed_id'          => 'sometimes|required|exists:deeds,id',
             'user_notaris_id'  => 'sometimes|required|exists:users,id',
             'first_client_id'  => 'sometimes|required|exists:users,id,role_id,2',
@@ -213,6 +268,9 @@ class NotarisActivityController extends Controller
             'first_client_approval'  => 'sometimes|required|in:pending,approved,rejected',
             'second_client_approval' => 'nullable|in:pending,approved,rejected',
         ], [
+            'name.required'             => 'Nama akta wajib diisi.',
+            'name.string'               => 'Nama akta harus berupa teks.',
+            'name.max'                  => 'Nama akta maksimal 255 karakter.',
             'deed_id.required'          => 'ID akta wajib diisi.',
             'deed_id.exists'            => 'Akta yang dipilih tidak valid.',
             'user_notaris_id.required'  => 'ID notaris wajib diisi.',
@@ -403,6 +461,43 @@ class NotarisActivityController extends Controller
             'success' => true,
             'message' => 'Aktivitas berhasil ditolak',
             'data'    => $activity
+        ], 200);
+    }
+
+    public function getUsers(Request $request)
+    {
+        $search  = $request->query('search');
+
+        $query = User::query()
+            ->select(['id', 'name', 'email', 'telepon', 'gender', 'status_verification', 'role_id'])
+            ->with(['identity:id,user_id,file_photo'])
+            ->where('role_id', 2) // hanya penghadap
+            ->where('status_verification', 'approved');
+
+        if ($search) {
+            $query->where(function ($w) use ($search) {
+                $w->where('name', 'like', "%{$search}%")
+                    ->orWhere('email', 'like', "%{$search}%");
+            });
+        }
+
+        $users = $query->orderBy('name')->get();
+
+        // kirim langsung sebagai opsi select {value,label}
+        $options = $users->map(function ($u) {
+            return [
+                'value'  => $u->id,
+                'label'  => $u->name . ' (' . $u->email . ')',
+                'name'   => $u->name,
+                'email'  => $u->email,
+                'avatar' => optional($u->identity)->file_photo,
+            ];
+        });
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Daftar klien terverifikasi berhasil diambil',
+            'data'    => $options,
         ], 200);
     }
 }

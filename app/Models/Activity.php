@@ -17,6 +17,7 @@ class Activity extends Model
     protected $table = 'activity';
 
     protected $fillable = [
+        'name',
         'deed_id',
         'user_notaris_id',
         'activity_notaris_id',
