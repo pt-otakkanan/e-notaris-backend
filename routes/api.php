@@ -1,13 +1,18 @@
 <?php
 
-use App\Http\Controllers\NotarisActivityController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\DeedController;
 use App\Http\Controllers\UserController;
 use App\Http\Controllers\ProductController;
+use App\Http\Controllers\ScheduleController;
+use App\Http\Controllers\RequirementController;
 use App\Http\Controllers\VerificationController;
+use App\Http\Controllers\ClientActivityController;
+use App\Http\Controllers\DocumentRequirementController;
+use App\Http\Controllers\MainValueDeedController;
+use App\Http\Controllers\NotarisActivityController;
 
 /*
 |--------------------------------------------------------------------------
@@ -60,6 +65,15 @@ Route::prefix('product')->middleware('auth:sanctum')->group(function () {
         Route::get('/{id}', [ProductController::class, 'detailProduct']);
     });
 });
+Route::prefix('main-value-deed')->middleware('auth:sanctum')->group(function () {
+    Route::middleware('ability:notaris,admin')->group(function () {
+        Route::get('/',        [MainValueDeedController::class, 'index']);
+        Route::get('/{id}',    [MainValueDeedController::class, 'show']);
+        Route::post('/',       [MainValueDeedController::class, 'store']);
+        Route::post('/update/{id}',    [MainValueDeedController::class, 'update']);
+        Route::delete('/{id}', [MainValueDeedController::class, 'destroy']);
+    });
+});
 // hanya role admin yang boleh CRUD
 Route::prefix('admin')->middleware('auth:sanctum')->group(function () {
     Route::post('/', [ProductController::class, 'storeProduct']);
@@ -76,11 +90,18 @@ Route::prefix('admin')->middleware('auth:sanctum')->group(function () {
         Route::get('/users/{id}', [VerificationController::class, 'getUserDetail']);
     });
     Route::prefix('deed')->middleware('ability:admin')->group(function () {
-        Route::get('/',        [DeedController::class, 'index'])->middleware('ability:admin');
-        Route::get('/{id}',    [DeedController::class, 'show'])->middleware('ability:admin');
-        Route::post('/',       [DeedController::class, 'store'])->middleware('ability:admin');
-        Route::post('/update/{id}',    [DeedController::class, 'update'])->middleware('ability:admin');
-        Route::delete('/{id}', [DeedController::class, 'destroy'])->middleware('ability:admin');
+        Route::get('/',        [DeedController::class, 'index']);
+        Route::get('/{id}',    [DeedController::class, 'show']);
+        Route::post('/',       [DeedController::class, 'store']);
+        Route::post('/update/{id}',    [DeedController::class, 'update']);
+        Route::delete('/{id}', [DeedController::class, 'destroy']);
+    });
+    Route::prefix('requirement')->middleware('ability:admin')->group(function () {
+        Route::get('/',        [RequirementController::class, 'index']);
+        Route::get('/{id}',    [RequirementController::class, 'show']);
+        Route::post('/',       [RequirementController::class, 'store']);
+        Route::post('/update/{id}',    [RequirementController::class, 'update']);
+        Route::delete('/{id}', [RequirementController::class, 'destroy']);
     });
     Route::prefix('user')->middleware('ability:admin')->group(function () {
         Route::get('/',        [UserController::class, 'getAllUsers']);
@@ -95,6 +116,18 @@ Route::prefix('notaris')->middleware('auth:sanctum')->group(function () {
         Route::get('/{id}',    [NotarisActivityController::class, 'show']);
         Route::post('/',       [NotarisActivityController::class, 'store']);
         Route::post('/update/{id}',    [NotarisActivityController::class, 'update']);
+        Route::delete('/{id}', [NotarisActivityController::class, 'destroy']);
+    });
+    Route::prefix('schedule')->middleware('ability:notaris')->group(function () {
+        Route::get('/',        [ScheduleController::class, 'index']);
+        Route::get('/{id}',    [ScheduleController::class, 'show']);
+        Route::post('/',       [ScheduleController::class, 'store']);
+        Route::post('/update/{id}',    [ScheduleController::class, 'update']);
+        Route::delete('/{id}', [ScheduleController::class, 'destroy']);
+    });
+    Route::prefix('document-requirement')->middleware('ability:notaris')->group(function () {
+        Route::post('/approval/{id}', [DocumentRequirementController::class, 'approval']);
+        Route::get('/activity/{id}',    [DocumentRequirementController::class, 'getByActivity']);
     });
 });
 Route::prefix('user')->middleware('auth:sanctum')->group(function () {
@@ -103,5 +136,23 @@ Route::prefix('user')->middleware('auth:sanctum')->group(function () {
         Route::get('/profile', [UserController::class, 'getProfile']);
         Route::post('/update-profile', [UserController::class, 'updateProfile']);
         Route::post('/update-identity-profile', [UserController::class, 'updateIdentityProfile']);
+
+        Route::prefix('document-requirement')->group(function () {
+            Route::get('/',        [DocumentRequirementController::class, 'index']);
+            Route::get('/{id}',    [DocumentRequirementController::class, 'show']);
+            Route::post('/',       [DocumentRequirementController::class, 'store']);
+            Route::delete('/{id}', [DocumentRequirementController::class, 'destroy']);
+        });
+    });
+    Route::middleware('ability:penghadap')->group(function () {
+        Route::post('/activity/approval/{id}', [ClientActivityController::class, 'clientApproval']);
+
+        Route::prefix('activity')->middleware('ability:penghadap')->group(function () {
+            Route::get('/',        [ClientActivityController::class, 'index']);
+            Route::get('/{id}',    [ClientActivityController::class, 'show']);
+        });
+        Route::prefix('document-requirement')->middleware('ability:penghadap')->group(function () {
+            Route::post('/update/{id}',    [DocumentRequirementController::class, 'update']);
+        });
     });
 });

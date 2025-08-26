@@ -24,4 +24,8 @@ class Requirement extends Model
     {
         return $this->belongsTo(Deed::class);
     }
+    public function documentRequirements()
+    {
+        return $this->hasMany(DocumentRequirement::class, 'requirement_id');
+    }
 }
