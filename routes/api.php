@@ -115,10 +115,12 @@ Route::prefix('notaris')->middleware('auth:sanctum')->group(function () {
         Route::get('/user/approved',        [NotarisActivityController::class, 'getByUserApproved']);
         Route::get('/user/client',        [NotarisActivityController::class, 'getUsers']);
         Route::get('/',        [NotarisActivityController::class, 'index']);
-        Route::get('/{id}',    [NotarisActivityController::class, 'show']);
         Route::post('/',       [NotarisActivityController::class, 'store']);
         Route::post('/update/{id}',    [NotarisActivityController::class, 'update']);
         Route::delete('/{id}', [NotarisActivityController::class, 'destroy']);
+    });
+    Route::prefix('activity')->middleware('ability:notaris,penghadap')->group(function () {
+        Route::get('/{id}',    [NotarisActivityController::class, 'show']);
     });
     Route::prefix('schedule')->middleware('ability:notaris')->group(function () {
         Route::get('/',        [ScheduleController::class, 'index']);
@@ -140,6 +142,7 @@ Route::prefix('user')->middleware('auth:sanctum')->group(function () {
         Route::post('/update-identity-profile', [UserController::class, 'updateIdentityProfile']);
 
         Route::prefix('document-requirement')->group(function () {
+            Route::get('/by-activity-user/{id}',  [DocumentRequirementController::class, 'getRequirementByActivityUser']);
             Route::get('/',        [DocumentRequirementController::class, 'index']);
             Route::get('/{id}',    [DocumentRequirementController::class, 'show']);
             Route::post('/',       [DocumentRequirementController::class, 'store']);
