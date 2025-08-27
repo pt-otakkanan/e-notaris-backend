@@ -119,7 +119,9 @@ class NotarisActivityController extends Controller
             'secondClient.identity',
             'schedules'
         ])->where('id', $id)
-            ->where('user_notaris_id', $user->id) // Pastikan hanya mengambil aktivitas milik notaris ini
+            ->where('user_notaris_id', $user->id)
+            ->orWhere('first_client_id', $user->id)
+            ->orWhere('second_client_id', $user->id)
             ->first();
 
         if (!$activity) {

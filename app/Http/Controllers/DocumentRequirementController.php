@@ -136,6 +136,43 @@ class DocumentRequirementController extends Controller
         ], 200);
     }
 
+    public function getRequirementByActivityUser(Request $request, $id)
+    {
+        $user = $request->user();
+
+        // Opsi 1: Query berdasarkan activity_id dan user authorization
+        $doc = DocumentRequirement::whereHas('activity', function ($sub) use ($user, $id) {
+            $sub->where('id', $id)
+                ->where(function ($query) use ($user) {
+                    $query->where('first_client_id', $user->id)
+                        ->orWhere('second_client_id', $user->id);
+                });
+        })->get();
+
+        // Atau Opsi 2: Query langsung dengan activity_id
+        // $doc = DocumentRequirement::with(['activity'])
+        //     ->where('activity_id', $id)
+        //     ->whereHas('activity', function ($sub) use ($user) {
+        //         $sub->where(function($query) use ($user) {
+        //             $query->where('first_client_id', $user->id)
+        //                   ->orWhere('second_client_id', $user->id);
+        //         });
+        //     })->get();
+
+        if ($doc->isEmpty()) { // Gunakan isEmpty() untuk Collection
+            return response()->json([
+                'success' => false,
+                'message' => 'Dokumen persyaratan tidak ditemukan atau Anda tidak memiliki akses',
+                'data'    => null
+            ], 404);
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Detail dokumen persyaratan berhasil diambil',
+            'data'    => $doc
+        ], 200);
+    }
 
     /**
      * GET /document-requirements/{id}
