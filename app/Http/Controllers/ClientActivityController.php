@@ -86,23 +86,22 @@ class ClientActivityController extends Controller
 
     public function clientApproval(Request $request, $id)
     {
-        $activity = Activity::find($id);
+        // Ambil activity + relasi deed (buat cek is_double_client)
+        $activity = Activity::with('deed')->find($id);
         if (!$activity) {
             return response()->json([
                 'success' => false,
                 'message' => 'Aktivitas tidak ditemukan',
-                'data'    => null
+                'data'    => null,
             ], 404);
         }
 
+        // Validasi: sekarang cuma butuh approval_status
         $validasi = Validator::make($request->all(), [
-            'client_type' => 'required|in:first,second',
             'approval_status' => 'required|in:approved,rejected',
         ], [
-            'client_type.required' => 'Tipe klien wajib diisi.',
-            'client_type.in' => 'Tipe klien harus first atau second.',
             'approval_status.required' => 'Status approval wajib diisi.',
-            'approval_status.in' => 'Status approval harus approved atau rejected.',
+            'approval_status.in'       => 'Status approval harus approved atau rejected.',
         ]);
 
         if ($validasi->fails()) {
@@ -113,28 +112,85 @@ class ClientActivityController extends Controller
             ], 422);
         }
 
-        $clientType = $request->client_type;
+        // Tentukan user saat ini adalah first atau second client
+        $userId = (int) optional($request->user())->id;
+        if (!$userId) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Tidak terautentikasi.',
+                'data'    => null,
+            ], 401);
+        }
+
+        $clientType = null;
+        if ((int) $activity->first_client_id === $userId) {
+            $clientType = 'first';
+        } elseif ($activity->second_client_id && (int) $activity->second_client_id === $userId) {
+            $clientType = 'second';
+        } else {
+            return response()->json([
+                'success' => false,
+                'message' => 'Anda tidak terdaftar sebagai penghadap pada aktivitas ini.',
+                'data'    => null,
+            ], 403);
+        }
+
         $approvalStatus = $request->approval_status;
 
+        // Set status approval sesuai clientType yang terdeteksi
         if ($clientType === 'first') {
             $activity->first_client_approval = $approvalStatus;
         } else {
+            // Safety: kalau tidak ada second_client_id tapi user mengaku second
             if (!$activity->second_client_id) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Aktivitas ini tidak memiliki klien kedua',
-                    'data'    => null
+                    'message' => 'Aktivitas ini tidak memiliki klien kedua.',
+                    'data'    => null,
                 ], 422);
             }
             $activity->second_client_approval = $approvalStatus;
         }
 
+        // Update status_approval global berdasarkan kebutuhan jumlah klien
+        $isDouble = (bool) optional($activity->deed)->is_double_client;
+
+        if ($approvalStatus === 'rejected') {
+            // Jika salah satu menolak → langsung rejected
+            $activity->status_approval = 'rejected';
+        } else {
+            // approved dari client yang submit
+            if ($isDouble) {
+                // butuh dua-duanya approved untuk set approved
+                if (
+                    $activity->first_client_approval === 'approved' &&
+                    $activity->second_client_approval === 'approved'
+                ) {
+                    $activity->status_approval = 'approved';
+                } else {
+                    $activity->status_approval = 'pending';
+                }
+            } else {
+                // single client: cukup first approved
+                $activity->status_approval =
+                    $activity->first_client_approval === 'approved'
+                    ? 'approved'
+                    : 'pending';
+            }
+        }
+
         $activity->save();
+
+        // Kembalikan activity terbaru (opsional muat relasi)
+        $activity->loadMissing(['deed', 'firstClient', 'secondClient']);
 
         return response()->json([
             'success' => true,
             'message' => 'Status approval klien berhasil diperbarui',
-            'data'    => $activity
+            'data'    => [
+                'client_type_detected' => $clientType,
+                'activity'             => $activity,
+            ],
         ], 200);
     }
 }
