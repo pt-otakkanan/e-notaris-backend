@@ -2,9 +2,6 @@
 
 namespace App\Models;
 
-use App\Models\Activity;
-use App\Models\Requirement;
-use App\Models\MainValueDeed;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 
@@ -15,25 +12,32 @@ class Deed extends Model
     protected $fillable = [
         'name',
         'description',
-        'is_double_client'
+        'total_client', // ganti is_double_client -> total_client
     ];
 
     protected $casts = [
-        'is_double_client' => 'boolean',
+        'total_client' => 'integer',
     ];
 
+    /** Relasi */
     public function requirements()
     {
-        return $this->hasMany(Requirement::class);
+        return $this->hasMany(Requirement::class, 'deed_id');
     }
 
     public function activities()
     {
-        return $this->hasMany(Activity::class);
+        return $this->hasMany(Activity::class, 'deed_id');
     }
 
     public function mainValueDeeds()
     {
-        return $this->hasMany(MainValueDeed::class);
+        return $this->hasMany(MainValueDeed::class, 'deed_id');
+    }
+
+    /** Helper opsional */
+    public function requiredClientsCount(): int
+    {
+        return max(1, (int) $this->total_client);
     }
 }
