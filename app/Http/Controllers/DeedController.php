@@ -11,7 +11,7 @@ class DeedController extends Controller
 {
     /**
      * GET /deeds
-     * Query opsional: q (search by name/description), page, per_page
+     * Query opsional: search (by name/description), per_page
      */
     public function index(Request $request)
     {
@@ -48,7 +48,7 @@ class DeedController extends Controller
      */
     public function show($id)
     {
-        $deed = Deed::find($id);
+        $deed = Deed::with(['requirements', 'activities', 'mainValueDeeds'])->find($id);
 
         if (!$deed) {
             return response()->json([
@@ -67,24 +67,26 @@ class DeedController extends Controller
 
     /**
      * POST /deeds
-     * Body: name, description, is_double_client (boolean)
+     * Body: name, description, total_client (int >=1)
      */
     public function store(Request $request)
     {
         $validasi = Validator::make($request->all(), [
-            'name'             => 'required|string|max:255|unique:deeds,name',
-            'description'      => 'required|string|max:255',
-            'is_double_client' => 'required|boolean',
+            'name'         => 'required|string|max:255|unique:deeds,name',
+            'description'  => 'required|string|max:255',
+            'total_client' => 'required|integer|min:1|max:10',
         ], [
-            'name.required'             => 'Nama akta wajib diisi.',
-            'name.string'               => 'Nama akta harus berupa teks.',
-            'name.max'                  => 'Nama akta maksimal 255 karakter.',
-            'name.unique'               => 'Nama akta sudah digunakan.',
-            'description.required'      => 'Deskripsi wajib diisi.',
-            'description.string'        => 'Deskripsi harus berupa teks.',
-            'description.max'           => 'Deskripsi maksimal 255 karakter.',
-            'is_double_client.required' => 'Status klien ganda wajib diisi.',
-            'is_double_client.boolean'  => 'Status klien ganda harus berupa boolean.',
+            'name.required'         => 'Nama akta wajib diisi.',
+            'name.string'           => 'Nama akta harus berupa teks.',
+            'name.max'              => 'Nama akta maksimal 255 karakter.',
+            'name.unique'           => 'Nama akta sudah digunakan.',
+            'description.required'  => 'Deskripsi wajib diisi.',
+            'description.string'    => 'Deskripsi harus berupa teks.',
+            'description.max'       => 'Deskripsi maksimal 255 karakter.',
+            'total_client.required' => 'Jumlah penghadap wajib diisi.',
+            'total_client.integer'  => 'Jumlah penghadap harus berupa angka.',
+            'total_client.min'      => 'Jumlah penghadap minimal 1.',
+            'total_client.max'      => 'Jumlah penghadap maksimal 10.',
         ]);
 
         if ($validasi->fails()) {
@@ -106,6 +108,7 @@ class DeedController extends Controller
 
     /**
      * PUT /deeds/{id}
+     * Body: name, description, total_client
      */
     public function update(Request $request, $id)
     {
@@ -119,19 +122,21 @@ class DeedController extends Controller
         }
 
         $validasi = Validator::make($request->all(), [
-            'name'             => 'required|string|max:255|unique:deeds,name,' . $deed->id,
-            'description'      => 'required|string|max:255',
-            'is_double_client' => 'required|boolean',
+            'name'         => 'required|string|max:255|unique:deeds,name,' . $deed->id,
+            'description'  => 'required|string|max:255',
+            'total_client' => 'required|integer|min:1|max:10',
         ], [
-            'name.required'            => 'Nama harus di isi.',
-            'name.string'              => 'Nama akta harus berupa teks.',
-            'name.max'                 => 'Nama akta maksimal 255 karakter.',
-            'name.unique'              => 'Nama akta sudah digunakan.',
-            'description.required'     => 'Deskripsi harus di isi.',
-            'description.string'       => 'Deskripsi harus berupa teks.',
-            'description.max'          => 'Deskripsi maksimal 255 karakter.',
-            'is_double_client.required' => 'Jumlah Penghadap harus di isi.',
-            'is_double_client.boolean' => 'Status klien ganda harus berupa boolean.',
+            'name.required'         => 'Nama akta wajib diisi.',
+            'name.string'           => 'Nama akta harus berupa teks.',
+            'name.max'              => 'Nama akta maksimal 255 karakter.',
+            'name.unique'           => 'Nama akta sudah digunakan.',
+            'description.required'  => 'Deskripsi wajib diisi.',
+            'description.string'    => 'Deskripsi harus berupa teks.',
+            'description.max'       => 'Deskripsi maksimal 255 karakter.',
+            'total_client.required' => 'Jumlah penghadap wajib diisi.',
+            'total_client.integer'  => 'Jumlah penghadap harus berupa angka.',
+            'total_client.min'      => 'Jumlah penghadap minimal 1.',
+            'total_client.max'      => 'Jumlah penghadap maksimal 10.',
         ]);
 
         if ($validasi->fails()) {
@@ -144,7 +149,7 @@ class DeedController extends Controller
 
         $data = $validasi->validated();
 
-        foreach (['name', 'description', 'is_double_client'] as $f) {
+        foreach (['name', 'description', 'total_client'] as $f) {
             if (array_key_exists($f, $data)) {
                 $deed->{$f} = $data[$f];
             }
@@ -154,14 +159,14 @@ class DeedController extends Controller
 
         return response()->json([
             'success' => true,
-            'message' => 'Akta berhasil diperbarui josjis',
+            'message' => 'Akta berhasil diperbarui',
             'data'    => $deed
         ], 200);
     }
 
     /**
      * DELETE /deeds/{id}
-     * Cegah hapus jika masih ada relasi penting
+     * (hapus juga relasi langsung)
      */
     public function destroy($id)
     {
@@ -180,8 +185,6 @@ class DeedController extends Controller
                 $deed->requirements()->delete();
                 $deed->mainValueDeeds()->delete();
                 $deed->activities()->delete();
-
-                // Terakhir: hapus Deed
                 $deed->delete();
             });
 

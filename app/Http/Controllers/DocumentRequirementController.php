@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\DocumentRequirement;
+use App\Models\Activity;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 use CloudinaryLabs\CloudinaryLaravel\Facades\Cloudinary;
@@ -12,23 +13,13 @@ class DocumentRequirementController extends Controller
 {
     /**
      * GET /document-requirements
-     * Query opsional:
-     * - activity_id (int)
-     * - user_id (int)
-     * - status (pending|approved|rejected)
-     * - q (search di value)
-     * - created_from (Y-m-d)
-     * - created_to   (Y-m-d)
-     * - per_page (default 10)
-     *
-     * Catatan: default membatasi data hanya untuk activity milik notaris-login
-     * (activity.user_notaris_id = $user->id). Hilangkan blok whereHas jika tidak diperlukan.
+     * Query: activity_id, user_id, status, q, created_from, created_to, per_page
+     * Akses: notaris pemilik activity ATAU user yang menjadi klien activity tsb.
      */
     public function index(Request $request)
     {
         $user      = $request->user();
-        $perPage   = (int)($request->query('per_page', 10));
-        $perPage   = $perPage > 0 ? $perPage : 10;
+        $perPage   = max(1, (int) $request->query('per_page', 10));
         $activityId = $request->query('activity_id');
         $userId    = $request->query('user_id');
         $status    = $request->query('status'); // pending|approved|rejected
@@ -36,9 +27,12 @@ class DocumentRequirementController extends Controller
         $from      = $request->query('created_from'); // Y-m-d
         $to        = $request->query('created_to');   // Y-m-d
 
-        $query = DocumentRequirement::with(['activity', 'user'])
+        $query = DocumentRequirement::with(['activity', 'user', 'requirement'])
             ->whereHas('activity', function ($sub) use ($user) {
-                $sub->where('user_notaris_id', $user->id)->orWhere('first_client_id', $user->id)->orWhere('second_client_id', $user->id);
+                $sub->where('user_notaris_id', $user->id)
+                    ->orWhereHas('clients', function ($c) use ($user) {
+                        $c->where('users.id', $user->id);
+                    });
             });
 
         if ($activityId) {
@@ -57,12 +51,8 @@ class DocumentRequirementController extends Controller
             $query->where('value', 'like', "%{$q}%");
         }
 
-        if ($from) {
-            $query->whereDate('created_at', '>=', $from);
-        }
-        if ($to) {
-            $query->whereDate('created_at', '<=', $to);
-        }
+        if ($from) $query->whereDate('created_at', '>=', $from);
+        if ($to)   $query->whereDate('created_at', '<=', $to);
 
         $items = $query->orderBy('created_at', 'desc')->paginate($perPage);
 
@@ -79,47 +69,35 @@ class DocumentRequirementController extends Controller
         ], 200);
     }
 
+    /**
+     * GET /document-requirements/by-activity/{id}
+     * Akses: notaris pemilik atau klien pada activity tsb
+     */
     public function getByActivity(Request $request, $id)
     {
         $user     = $request->user();
-        $perPage  = (int)($request->query('per_page', 10));
-        $perPage  = $perPage > 0 ? $perPage : 10;
+        $perPage  = max(1, (int) $request->query('per_page', 10));
 
-        // optional filters
-        $userId = $request->query('user_id');      // filter per penghadap tertentu
-        $status = $request->query('status');       // pending|approved|rejected
-        $q      = $request->query('q');            // search di value
-        $from   = $request->query('created_from'); // Y-m-d
-        $to     = $request->query('created_to');   // Y-m-d
+        $userId = $request->query('user_id');
+        $status = $request->query('status');
+        $q      = $request->query('q');
+        $from   = $request->query('created_from');
+        $to     = $request->query('created_to');
 
         $query = DocumentRequirement::with(['activity', 'user', 'requirement'])
-            // kunci ke activity dari path param
             ->where('activity_notaris_id', $id)
-            // authorisasi: notaris pemilik atau salah satu client di activity tsb
             ->whereHas('activity', function ($sub) use ($user) {
-                $sub->where(function ($s) use ($user) {
-                    $s->where('user_notaris_id', $user->id);
-                });
+                $sub->where('user_notaris_id', $user->id)
+                    ->orWhereHas('clients', function ($c) use ($user) {
+                        $c->where('users.id', $user->id);
+                    });
             });
 
-        if ($userId) {
-            $query->where('user_id', $userId);
-        }
-
-        if ($status) {
-            $query->where('status_approval', $status);
-        }
-
-        if ($q) {
-            $query->where('value', 'like', "%{$q}%");
-        }
-
-        if ($from) {
-            $query->whereDate('created_at', '>=', $from);
-        }
-        if ($to) {
-            $query->whereDate('created_at', '<=', $to);
-        }
+        if ($userId)   $query->where('user_id', $userId);
+        if ($status)   $query->where('status_approval', $status);
+        if ($q)        $query->where('value', 'like', "%{$q}%");
+        if ($from)     $query->whereDate('created_at', '>=', $from);
+        if ($to)       $query->whereDate('created_at', '<=', $to);
 
         $items = $query->orderBy('created_at', 'desc')->paginate($perPage);
 
@@ -136,33 +114,47 @@ class DocumentRequirementController extends Controller
         ], 200);
     }
 
+    /**
+     * GET /document-requirements/by-activity/{id}/me
+     * Klien: ambil semua requirement milik dirinya pada activity tsb.
+     * Notaris: bisa pakai query user_id untuk melihat milik klien tertentu.
+     */
     public function getRequirementByActivityUser(Request $request, $id)
     {
         $user = $request->user();
 
-        // Opsi 1: Query berdasarkan activity_id dan user authorization
-        $doc = DocumentRequirement::whereHas('activity', function ($sub) use ($user, $id) {
-            $sub->where('id', $id)
-                ->where(function ($query) use ($user) {
-                    $query->where('first_client_id', $user->id)
-                        ->orWhere('second_client_id', $user->id);
-                });
-        })->get();
+        // izinkan jika user adalah notaris pemilik atau klien activity
+        $allowed = Activity::where('id', $id)
+            ->where(function ($q) use ($user) {
+                $q->where('user_notaris_id', $user->id)
+                    ->orWhereHas('clients', function ($c) use ($user) {
+                        $c->where('users.id', $user->id);
+                    });
+            })->exists();
 
-        // Atau Opsi 2: Query langsung dengan activity_id
-        // $doc = DocumentRequirement::with(['activity'])
-        //     ->where('activity_id', $id)
-        //     ->whereHas('activity', function ($sub) use ($user) {
-        //         $sub->where(function($query) use ($user) {
-        //             $query->where('first_client_id', $user->id)
-        //                   ->orWhere('second_client_id', $user->id);
-        //         });
-        //     })->get();
-
-        if ($doc->isEmpty()) { // Gunakan isEmpty() untuk Collection
+        if (!$allowed) {
             return response()->json([
                 'success' => false,
-                'message' => 'Dokumen persyaratan tidak ditemukan atau Anda tidak memiliki akses',
+                'message' => 'Anda tidak memiliki akses ke aktivitas ini',
+                'data'    => null
+            ], 403);
+        }
+
+        // Jika notaris → boleh override user_id via query; jika klien → pakai id sendiri
+        $targetUserId = $request->query('user_id');
+        if (!$targetUserId) {
+            $targetUserId = $user->id;
+        }
+
+        $docs = DocumentRequirement::with(['activity', 'user', 'requirement'])
+            ->where('activity_notaris_id', $id)
+            ->where('user_id', $targetUserId)
+            ->get();
+
+        if ($docs->isEmpty()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Dokumen persyaratan tidak ditemukan',
                 'data'    => null
             ], 404);
         }
@@ -170,20 +162,26 @@ class DocumentRequirementController extends Controller
         return response()->json([
             'success' => true,
             'message' => 'Detail dokumen persyaratan berhasil diambil',
-            'data'    => $doc
+            'data'    => $docs,
         ], 200);
     }
 
     /**
      * GET /document-requirements/{id}
+     * Akses: notaris pemilik atau klien pada activity tsb
      */
     public function show(Request $request, $id)
     {
         $user = $request->user();
-        $doc = DocumentRequirement::with(['activity', 'user'])
+
+        $doc = DocumentRequirement::with(['activity', 'user', 'requirement'])
             ->whereHas('activity', function ($sub) use ($user) {
-                $sub->where('user_notaris_id', $user->id)->orWhere('first_client_id', $user->id)->orWhere('second_client_id', $user->id);
-            })->find($id);
+                $sub->where('user_notaris_id', $user->id)
+                    ->orWhereHas('clients', function ($c) use ($user) {
+                        $c->where('users.id', $user->id);
+                    });
+            })
+            ->find($id);
 
         if (!$doc) {
             return response()->json([
@@ -201,34 +199,22 @@ class DocumentRequirementController extends Controller
     }
 
     /**
-     * POST /document-requirements
+     * POST /document-requirements (multipart/form-data jika ada file)
      * Body:
-     * - activity_notaris_id (required)
-     * - user_id (opsional, default: user login)
+     * - activity_notaris_id (required, exists:activity,id)
+     * - user_id (opsional; klien diabaikan & dipaksa = user login)
      * - value (nullable|string)
-     * - file  (nullable|file)  // multipart/form-data
-     * - status_approval (opsional; default 'pending')
-     *
-     * Aturan: minimal salah satu dari 'value' atau 'file' harus diisi.
+     * - file  (nullable|file)
      */
     public function store(Request $request)
     {
         $user   = $request->user();
-        $userId = (int)($request->input('user_id', $user->id));
 
         $validator = Validator::make($request->all(), [
             'activity_notaris_id' => 'required|integer|exists:activity,id',
             'user_id'             => 'sometimes|integer|exists:users,id',
             'value'               => 'nullable|string|max:1000',
-            'file'                => 'nullable|file|mimes:jpg,jpeg,png,webp,pdf,doc,docx|max:2120',
-        ], [
-            'activity_notaris_id.required' => 'Activity wajib diisi.',
-            'activity_notaris_id.exists'   => 'Activity tidak ditemukan.',
-            'value.string'                 => 'Value harus berupa teks.',
-            'value.max'                    => 'Value maksimal 1000 karakter.',
-            'file.file'                    => 'File tidak valid.',
-            'file.mimes'                   => 'Tipe file tidak didukung.',
-            'file.max'                     => 'Ukuran file maksimal 2MB.',
+            'file'                => 'nullable|file|mimes:jpg,jpeg,png,webp,pdf,doc,docx|max:5120',
         ]);
 
         if ($validator->fails()) {
@@ -239,23 +225,57 @@ class DocumentRequirementController extends Controller
             ], 422);
         }
 
-        // Pastikan minimal satu: value atau file
+        // Cek akses ke activity
+        $activity = Activity::with('clients')->find($request->input('activity_notaris_id'));
+        if (!$activity) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Activity tidak ditemukan.',
+                'data'    => null,
+            ], 404);
+        }
+
+        $isOwner = (int) $activity->user_notaris_id === (int) $user->id;
+        $isClient = $activity->clients->contains('id', $user->id);
+
+        if (!$isOwner && !$isClient) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Anda tidak memiliki akses ke aktivitas ini.',
+                'data'    => null,
+            ], 403);
+        }
+
+        // Tentukan user_id target:
+        // - Jika klien: paksa ke user login
+        // - Jika notaris: boleh pakai user_id dari request (wajib anggota clients)
+        $targetUserId = $user->id;
+        if ($isOwner && $request->filled('user_id')) {
+            $targetUserId = (int) $request->input('user_id');
+            if (!$activity->clients->contains('id', $targetUserId)) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'User target bukan klien pada aktivitas ini.',
+                    'data'    => null,
+                ], 422);
+            }
+        }
+
         if (!$request->filled('value') && !$request->hasFile('file')) {
             return response()->json([
                 'success' => false,
                 'message' => 'Minimal isi salah satu: value atau file.',
-                'data'    => ['value' => ['Wajib diisi jika tidak mengirim file'], 'file' => ['Wajib diisi jika tidak mengirim value']]
+                'data'    => null
             ], 422);
         }
 
         $data = $validator->validated();
-        $data['user_id'] = $userId;
+        $data['user_id']         = $targetUserId;
         $data['status_approval'] = 'pending';
 
-        // Upload file (jika ada)
         if ($request->hasFile('file')) {
             $publicId  = 'req_' . time() . '_' . Str::random(8);
-            $folder    = "enotaris/activities/{$data['activity_notaris_id']}/requirements/{$userId}";
+            $folder    = "enotaris/activities/{$data['activity_notaris_id']}/requirements/{$targetUserId}";
             $uploaded  = Cloudinary::upload(
                 $request->file('file')->getRealPath(),
                 [
@@ -267,8 +287,8 @@ class DocumentRequirementController extends Controller
                 ]
             );
 
-            $data['file']      = $uploaded->getSecurePath(); // URL https
-            $data['file_path'] = $uploaded->getPublicId();   // simpan public_id untuk destroy
+            $data['file']      = $uploaded->getSecurePath();
+            $data['file_path'] = $uploaded->getPublicId();
         }
 
         $doc = DocumentRequirement::create($data);
@@ -282,16 +302,11 @@ class DocumentRequirementController extends Controller
 
     /**
      * PUT/PATCH /document-requirements/{id}
-     * Partial update:
-     * - activity_notaris_id (opsional)
-     * - user_id (opsional)
-     * - value (nullable|string)
-     * - file  (nullable|file) // jika kirim file baru, file lama dihapus dari Cloudinary
-     * - status_approval (pending|approved|rejected)
+     * Catatan: reset status_approval ke 'pending' setiap ada perubahan konten.
      */
     public function update(Request $request, $id)
     {
-        $doc = DocumentRequirement::find($id);
+        $doc = DocumentRequirement::with(['activity.clients'])->find($id);
         if (!$doc) {
             return response()->json([
                 'success' => false,
@@ -300,21 +315,26 @@ class DocumentRequirementController extends Controller
             ], 404);
         }
 
+        $user = $request->user();
+        $activity = $doc->activity;
+
+        // Akses: notaris pemilik atau pemilik dokumen (user_id sama)
+        $isOwner  = (int) $activity->user_notaris_id === (int) $user->id;
+        $isAuthor = (int) $doc->user_id === (int) $user->id;
+
+        if (!$isOwner && !$isAuthor) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Anda tidak memiliki akses untuk mengubah dokumen ini.',
+                'data'    => null
+            ], 403);
+        }
+
         $validator = Validator::make($request->all(), [
             'activity_notaris_id' => 'sometimes|integer|exists:activity,id',
             'user_id'             => 'sometimes|integer|exists:users,id',
             'value'               => 'nullable|string|max:1000',
             'file'                => 'nullable|file|mimes:jpg,jpeg,png,webp,pdf,doc,docx|max:5120',
-        ], [
-            'activity_notaris_id.integer' => 'Activity harus berupa angka.',
-            'activity_notaris_id.exists'  => 'Activity tidak ditemukan.',
-            'user_id.integer'             => 'User harus berupa angka.',
-            'user_id.exists'              => 'User tidak ditemukan.',
-            'value.string'                => 'Value harus berupa teks.',
-            'value.max'                   => 'Value maksimal 1000 karakter.',
-            'file.file'                   => 'File tidak valid.',
-            'file.mimes'                  => 'Tipe file tidak didukung.',
-            'file.max'                    => 'Ukuran file maksimal 5MB.',
         ]);
 
         if ($validator->fails()) {
@@ -327,7 +347,21 @@ class DocumentRequirementController extends Controller
 
         $data = $validator->validated();
 
-        // Jika user mengganti file, hapus file lama
+        // Notaris boleh ganti user_id hanya ke klien activity
+        if (array_key_exists('user_id', $data) && !$isOwner) {
+            unset($data['user_id']); // klien tidak boleh pindahkan kepemilikan
+        }
+        if ($isOwner && array_key_exists('user_id', $data)) {
+            if (!$activity->clients->contains('id', (int) $data['user_id'])) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'User target bukan klien pada aktivitas ini.',
+                    'data'    => null,
+                ], 422);
+            }
+        }
+
+        // File baru → hapus file lama
         if ($request->hasFile('file')) {
             if (!empty($doc->file_path)) {
                 try {
@@ -341,10 +375,10 @@ class DocumentRequirementController extends Controller
             }
 
             $activityId = $data['activity_notaris_id'] ?? $doc->activity_notaris_id;
-            $userId     = $data['user_id'] ?? $doc->user_id;
+            $ownerId    = $data['user_id'] ?? $doc->user_id;
 
             $publicId  = 'req_' . time() . '_' . Str::random(8);
-            $folder    = "enotaris/activities/{$activityId}/requirements/{$userId}";
+            $folder    = "enotaris/activities/{$activityId}/requirements/{$ownerId}";
             $uploaded  = Cloudinary::upload(
                 $request->file('file')->getRealPath(),
                 [
@@ -366,10 +400,9 @@ class DocumentRequirementController extends Controller
             }
         }
 
-        // Reset status approval ke pending setiap update
+        // Reset status setiap ada perubahan
         $doc->status_approval = 'pending';
 
-        // Jika setelah update, value & file sama-sama kosong → tolak
         if (is_null($doc->value) && empty($doc->file)) {
             return response()->json([
                 'success' => false,
@@ -387,13 +420,13 @@ class DocumentRequirementController extends Controller
         ], 200);
     }
 
-
     /**
      * DELETE /document-requirements/{id}
+     * Akses: notaris pemilik atau pemilik dokumen
      */
     public function destroy($id)
     {
-        $doc = DocumentRequirement::find($id);
+        $doc = DocumentRequirement::with('activity')->find($id);
         if (!$doc) {
             return response()->json([
                 'success' => false,
@@ -402,7 +435,18 @@ class DocumentRequirementController extends Controller
             ], 404);
         }
 
-        // Hapus file di Cloudinary jika ada
+        $user = request()->user();
+        $isOwner  = (int) $doc->activity->user_notaris_id === (int) $user->id;
+        $isAuthor = (int) $doc->user_id === (int) $user->id;
+
+        if (!$isOwner && !$isAuthor) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Anda tidak memiliki akses menghapus dokumen ini.',
+                'data'    => null
+            ], 403);
+        }
+
         if (!empty($doc->file_path)) {
             try {
                 Cloudinary::destroy($doc->file_path);
@@ -424,15 +468,16 @@ class DocumentRequirementController extends Controller
         ], 200);
     }
 
+    /**
+     * PUT /document-requirements/{id}/approval
+     * Akses: notaris pemilik activity.
+     */
     public function approval(Request $request, $id)
     {
         $user = $request->user();
 
         $validator = Validator::make($request->all(), [
             'status_approval' => 'required|in:approved,rejected',
-        ], [
-            'status_approval.required' => 'Status approval wajib diisi.',
-            'status_approval.in' => 'Status approval harus approved atau rejected.',
         ]);
 
         if ($validator->fails()) {
@@ -446,7 +491,9 @@ class DocumentRequirementController extends Controller
         $doc = DocumentRequirement::with(['activity', 'user'])
             ->whereHas('activity', function ($sub) use ($user) {
                 $sub->where('user_notaris_id', $user->id);
-            })->find($id);
+            })
+            ->find($id);
+
         if (!$doc) {
             return response()->json([
                 'success' => false,
@@ -455,9 +502,9 @@ class DocumentRequirementController extends Controller
             ], 404);
         }
 
-        $status = $request->input('status_approval');
-        $doc->status_approval = $status;
+        $doc->status_approval = $request->input('status_approval');
         $doc->save();
+
         return response()->json([
             'success' => true,
             'message' => 'Status approval dokumen persyaratan berhasil diperbarui',
