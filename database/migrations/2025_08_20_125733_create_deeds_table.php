@@ -12,7 +12,7 @@ return new class extends Migration
             $table->id();
             $table->string('name', 255)->nullable(false);
             $table->string('description', 255)->nullable(false);
-            $table->boolean('is_double_client')->nullable(false)->default(false);
+            $table->integer('total_client')->nullable(false);
             $table->timestamps();
         });
     }

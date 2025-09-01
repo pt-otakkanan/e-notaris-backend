@@ -5,14 +5,15 @@ use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\DeedController;
 use App\Http\Controllers\UserController;
+use App\Http\Controllers\TrackController;
 use App\Http\Controllers\ProductController;
 use App\Http\Controllers\ScheduleController;
 use App\Http\Controllers\RequirementController;
 use App\Http\Controllers\VerificationController;
-use App\Http\Controllers\ClientActivityController;
-use App\Http\Controllers\DocumentRequirementController;
 use App\Http\Controllers\MainValueDeedController;
+use App\Http\Controllers\ClientActivityController;
 use App\Http\Controllers\NotarisActivityController;
+use App\Http\Controllers\DocumentRequirementController;
 
 /*
 |--------------------------------------------------------------------------
@@ -122,6 +123,10 @@ Route::prefix('notaris')->middleware('auth:sanctum')->group(function () {
     Route::prefix('activity')->middleware('ability:notaris,penghadap')->group(function () {
         Route::get('/{id}',    [NotarisActivityController::class, 'show']);
     });
+    Route::prefix('track')->middleware('ability:notaris')->group(function () {
+        Route::get('/{id}', [TrackController::class, 'show']);
+        Route::post('/{id}', [TrackController::class, 'update']);
+    });
     Route::prefix('schedule')->middleware('ability:notaris')->group(function () {
         Route::get('/',        [ScheduleController::class, 'index']);
         Route::get('/{id}',    [ScheduleController::class, 'show']);
@@ -130,6 +135,7 @@ Route::prefix('notaris')->middleware('auth:sanctum')->group(function () {
         Route::delete('/{id}', [ScheduleController::class, 'destroy']);
     });
     Route::prefix('document-requirement')->middleware('ability:notaris')->group(function () {
+        Route::get('/by-activity-notaris/{id}',  [DocumentRequirementController::class, 'getRequirementByActivityNotaris']);
         Route::post('/approval/{id}', [DocumentRequirementController::class, 'approval']);
         Route::get('/activity/{id}',    [DocumentRequirementController::class, 'getByActivity']);
     });
