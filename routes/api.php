@@ -88,7 +88,7 @@ Route::prefix('admin')->middleware('auth:sanctum')->group(function () {
         Route::get('/users-approved', [VerificationController::class, 'getApprovedVerifications']);
         Route::get('/users-rejected-pending', [VerificationController::class, 'getRejectedPendingVerifications']);
         Route::get('/users', [VerificationController::class, 'getAllUsers']);
-        Route::get('/users/{id}', [VerificationController::class, 'getUserDetail']);
+        Route::get('/users/{id}', [UserController::class, 'getDetailUser']);
     });
     Route::prefix('deed')->middleware('ability:notaris,admin')->group(function () {
         Route::get('/',        [DeedController::class, 'index']);
