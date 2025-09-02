@@ -4,11 +4,13 @@ namespace App\Http\Controllers;
 
 use Log;
 use App\Models\User;
+use App\Models\Track;
 use App\Models\Activity;
 use App\Models\Identity;
 use Illuminate\Support\Str;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use App\Models\DocumentRequirement;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Validator;
 use CloudinaryLabs\CloudinaryLaravel\Facades\Cloudinary;
@@ -67,6 +69,7 @@ class UserController extends Controller
             'data' => [
                 'id' => $user->id,
                 'name' => $user->name,
+                'role_id' => $user->role_id,
                 'email' => $user->email,
                 'telepon' => $user->telepon,
                 'gender' => $user->gender,
@@ -94,8 +97,8 @@ class UserController extends Controller
 
     public function destroyUser(Request $request, $id)
     {
-        // Pastikan routes endpoint ini dibatasi ability:admin
-        $user = User::with(['identity', 'documentRequirements'])->find($id);
+        // Batasi route dengan ability:admin di middleware/route
+        $user = User::with(['identity'])->find($id);
 
         if (!$user) {
             return response()->json([
@@ -106,20 +109,115 @@ class UserController extends Controller
 
         DB::beginTransaction();
         try {
-            // 1) Hapus semua ACTIVITY yang mereferensikan user ini
-            Activity::where(function ($q) use ($user) {
-                $q->where('first_client_id',  $user->id)
-                    ->orWhere('second_client_id', $user->id)
-                    ->orWhere('user_notaris_id',  $user->id);
-            })->delete();
-            // NOTE: Jika tabel lain mereferensikan activity (child), pastikan FK-nya ON DELETE CASCADE,
-            // atau hapus child-nya dulu di sini.
+            /** =========================
+             *  A) Jika user adalah NOTARIS
+             *  ========================= */
+            if ((int) $user->role_id === 1) { // sesuaikan kode role notaris
+                // Ambil semua activity milik notaris ini
+                $activities = Activity::where('user_notaris_id', $user->id)->get();
 
-            // 2) Hapus DOCUMENT REQUIREMENTS milik user (kalau ada file ter-Cloudinary, bersihkan juga di sini)
-            //    Contoh ini hanya delete row; tambahkan Cloudinary::destroy() kalau ada path public_id.
-            $user->documentRequirements()->delete();
+                foreach ($activities as $act) {
+                    // Hapus dokumen persyaratan + file
+                    $act->documentRequirements()
+                        ->select(['id', 'file_path'])
+                        ->chunkById(200, function ($rows) {
+                            foreach ($rows as $row) {
+                                if (!empty($row->file_path)) {
+                                    try {
+                                        Cloudinary::destroy($row->file_path);
+                                    } catch (\Throwable $e) {
+                                    }
+                                }
+                                DocumentRequirement::where('id', $row->id)->delete();
+                            }
+                        });
 
-            // 3) Hapus IDENTITY + file Cloudinary terkait
+                    // Hapus drafts & schedules
+                    $act->draftDeeds()->delete();
+                    $act->schedules()->delete();
+
+                    // Hapus pivot client_activity
+                    $act->clientActivities()->delete();
+
+                    // Hapus track terkait
+                    if ($act->track_id) {
+                        Track::where('id', $act->track_id)->delete();
+                    }
+
+                    // Hapus activity
+                    $act->delete();
+                }
+            }
+
+            /** =========================
+             *  B) Jika user adalah KLIEN
+             *  ========================= */
+            if ((int) $user->role_id === 2) {
+                // 1) Hapus semua DocumentRequirement milik user (plus file)
+                DocumentRequirement::where('user_id', $user->id)
+                    ->select(['id', 'file_path'])
+                    ->chunkById(200, function ($rows) {
+                        foreach ($rows as $row) {
+                            if (!empty($row->file_path)) {
+                                try {
+                                    Cloudinary::destroy($row->file_path);
+                                } catch (\Throwable $e) {
+                                }
+                            }
+                            DocumentRequirement::where('id', $row->id)->delete();
+                        }
+                    });
+
+                // 2) Ambil activity yang diikuti user via pivot
+                $activityIds = ClientActivity::where('user_id', $user->id)
+                    ->pluck('activity_id')->all();
+
+                // Keluarkan user dari pivot
+                ClientActivity::where('user_id', $user->id)->delete();
+
+                // 3) Untuk setiap activity:
+                //    - jika tidak ada klien tersisa -> hapus activity (plus anak2nya)
+                //    - jika masih ada klien -> set track.status_respond = 'pending'
+                $acts = Activity::with(['clientActivities', 'track'])->whereIn('id', $activityIds)->get();
+
+                foreach ($acts as $act) {
+                    if ($act->clientActivities()->count() === 0) {
+                        // tidak ada klien tersisa -> hapus seluruh activity
+                        $act->documentRequirements()
+                            ->select(['id', 'file_path'])
+                            ->chunkById(200, function ($rows) {
+                                foreach ($rows as $row) {
+                                    if (!empty($row->file_path)) {
+                                        try {
+                                            Cloudinary::destroy($row->file_path);
+                                        } catch (\Throwable $e) {
+                                        }
+                                    }
+                                    DocumentRequirement::where('id', $row->id)->delete();
+                                }
+                            });
+
+                        $act->draftDeeds()->delete();
+                        $act->schedules()->delete();
+
+                        if ($act->track_id) {
+                            Track::where('id', $act->track_id)->delete();
+                        }
+
+                        $act->delete();
+                    } else {
+                        // masih ada klien lain -> track respond balik ke pending
+                        if ($act->track) {
+                            $act->track->status_respond = 'pending'; // atau 'rejected' sesuai kebijakan bisnis
+                            $act->track->save();
+                        }
+                    }
+                }
+            }
+
+            /** =========================
+             *  C) Bersihkan Identity & Avatar user
+             *  ========================= */
             if ($user->identity) {
                 foreach (
                     [
@@ -128,7 +226,7 @@ class UserController extends Controller
                         'file_npwp_path',
                         'file_ktp_notaris_path',
                         'file_sign_path',
-                        'file_photo_path', // ⬅️ jangan lupa foto formal
+                        'file_photo_path',
                     ] as $field
                 ) {
                     $publicId = $user->identity->{$field} ?? null;
@@ -136,29 +234,26 @@ class UserController extends Controller
                         try {
                             Cloudinary::destroy($publicId);
                         } catch (\Throwable $e) {
-                            // optional: log
                         }
                     }
                 }
                 $user->identity()->delete();
             }
 
-            // 4) Hapus avatar user di Cloudinary kalau ada
             if (!empty($user->file_avatar_path)) {
                 try {
                     Cloudinary::destroy($user->file_avatar_path);
                 } catch (\Throwable $e) {
-                    // optional: log
                 }
             }
 
-            // 5) (Optional) Revoke semua token Sanctum user
+            // Revoke token Sanctum (opsional)
             try {
                 $user->tokens()->delete();
             } catch (\Throwable $e) {
             }
 
-            // 6) Hapus user
+            // Akhir: hapus user
             $user->delete();
 
             DB::commit();
@@ -176,7 +271,6 @@ class UserController extends Controller
             ], 500);
         }
     }
-
 
     public function getProfile(Request $request)
     {

@@ -8,12 +8,12 @@
     /* Banyak klien email menghapus <style> kompleks—tetap minimal */
     .wrapper { width: 100%; background: #f6f9fc; padding: 24px 0; }
     .container { width: 100%; max-width: 600px; margin: 0 auto; background: #ffffff; border-radius: 8px; overflow: hidden; border: 1px solid #eaeaea; }
-    .header { padding: 20px 24px; background: #098486; color: #ffffff; font-family: Arial, sans-serif; }
+    .header { padding: 20px 24px; background: #0256c4; color: #ffffff; font-family: Arial, sans-serif; }
     .content { padding: 24px; font-family: Arial, sans-serif; color: #333333; line-height: 1.6; }
     .table { width: 100%; border-collapse: collapse; margin: 12px 0 4px; }
     .table td { padding: 6px 0; vertical-align: top; }
     .code-box { font-family: "Courier New", monospace; font-size: 22px; letter-spacing: 2px; background: #f1f5f9; padding: 12px 16px; text-align: center; border-radius: 6px; border: 1px dashed #cbd5e1; }
-    .btn { display: inline-block; padding: 12px 18px; border-radius: 6px; text-decoration: none; background: #098486; color: #ffffff !important; font-weight: bold; }
+    .btn { display: inline-block; padding: 12px 18px; border-radius: 6px; text-decoration: none; background: #0256c4; color: #ffffff !important; font-weight: bold; }
     .muted { color: #6b7280; font-size: 12px; }
     .footer { padding: 16px 24px; text-align: center; font-family: Arial, sans-serif; color: #6b7280; font-size: 12px; }
     .preheader { display:none!important; visibility:hidden; opacity:0; color:transparent; height:0; width:0; overflow:hidden; }

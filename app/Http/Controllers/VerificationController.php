@@ -16,7 +16,7 @@ class VerificationController extends Controller
         $validator = Validator::make($request->all(), [
             'id' => 'required|exists:users,id',
             'status_verification' => 'required|in:pending,approved,rejected',
-            'notes_verification'     => 'sometimes|string|max:255',
+            'notes_verification'     => 'nullable|string|max:255',
         ]);
 
         if ($validator->fails()) {
@@ -27,15 +27,17 @@ class VerificationController extends Controller
             ], 422);
         }
 
+        $validator->sometimes('notes_verification', 'required|string|max:255', function ($input) {
+            return $input->status_verification === 'rejected';
+        });
+
+
         try {
             // Cari user dan update status
             $user = User::find($request->id);
             $user->status_verification = $request->status_verification;
-            if ($request->notes_verification) {
-                $user->notes_verification = $request->notes_verification;
-            } else {
-                $user->notes_verification = null; // Reset jika tidak ada catatan
-            }
+            $user->notes_verification = $request->notes_verification;
+
 
             $user->save();
 

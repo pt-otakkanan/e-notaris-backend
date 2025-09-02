@@ -256,16 +256,24 @@ class AuthController extends Controller
     /** Kirim email verifikasi dengan data yang SUDAH ada di DB */
     private function sendVerificationMail(User $user, string $code, \Carbon\Carbon $expires): void
     {
+        $frontend = rtrim(config('app.frontend_url'), '/');
+        $verifyUrl = $frontend . '/verify-code?' . http_build_query([
+            'email' => $user->email,
+            'code'  => $code, // pakai kode yang baru dibuat
+        ]);
+
         $details = [
             'name'       => $user->name,
             'role_label' => $user->role_id == 3 ? 'Notaris' : 'Penghadap',
             'website'    => config('app.name'),
             'kode'       => $code,
-            'url'        => url('/verify'),
+            'url'        => $verifyUrl,
             'expires_at' => $expires->toIso8601String(),
         ];
+
         Mail::to($user->email)->send(new AuthMail($details));
     }
+
 
     /** Regenerate (buat ulang) kode + kirim email – dipakai di verify/login/resend */
     private function regenerateAndSendVerificationCode(User $user): void
