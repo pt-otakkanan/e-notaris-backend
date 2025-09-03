@@ -9,6 +9,7 @@ use App\Models\Activity;
 use App\Models\Identity;
 use Illuminate\Support\Str;
 use Illuminate\Http\Request;
+use App\Models\ClientActivity;
 use Illuminate\Support\Facades\DB;
 use App\Models\DocumentRequirement;
 use Illuminate\Support\Facades\Auth;
@@ -272,6 +273,46 @@ class UserController extends Controller
         }
     }
 
+    public function getProfileById(Request $request, $id)
+    {
+        $user = User::where('id', $id)->first();
+        $identity = Identity::where('user_id', $user->id)->first();
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Profil berhasil diambil',
+            'data' => [
+                // Data User
+                'user' => [
+                    'id' => $user->id,
+                    'name' => $user->name,
+                    'email' => $user->email,
+                    'telepon' => $user->telepon,
+                    'gender' => $user->gender,
+                    'address' => $user->address,
+                    'file_avatar' => $user->file_avatar,
+                    'status_verification' => $user->status_verification,
+                    'notes_verification' => $user->notes_verification,
+                    'created_at' => $user->created_at,
+                ],
+
+                // Data Identity
+                'identity' => [
+                    'ktp'              => $identity?->ktp,
+                    'npwp'             => $identity?->npwp,
+                    'ktp_notaris'      => $identity?->ktp_notaris,
+                    'file_ktp'         => $identity?->file_ktp,
+                    'file_kk'          => $identity?->file_kk,
+                    'file_npwp'        => $identity?->file_npwp,
+                    'file_ktp_notaris' => $identity?->file_ktp_notaris,
+                    'file_sign'        => $identity?->file_sign,
+                    'file_photo'       => $identity?->file_photo,
+                    'created_at'       => $identity?->created_at,
+                    'updated_at'       => $identity?->updated_at,
+                ]
+            ]
+        ], 200);
+    }
     public function getProfile(Request $request)
     {
         $user = $request->user();
@@ -395,16 +436,46 @@ class UserController extends Controller
             'npwp'           => 'sometimes|nullable|string|max:20',
             'ktp_notaris'    => 'sometimes|nullable|string|max:16',
 
-            // kalau izinkan pdf, hapus 'image', cukup 'mimes' atau 'mimetypes'
             'file_ktp'         => 'sometimes|file|mimes:jpg,jpeg,png,pdf|max:2048',
             'file_kk'          => 'sometimes|file|mimes:jpg,jpeg,png,pdf|max:2048',
             'file_npwp'        => 'sometimes|file|mimes:jpg,jpeg,png,pdf|max:2048',
             'file_ktp_notaris' => 'sometimes|file|mimes:jpg,jpeg,png,pdf|max:2048',
-            // tanda tangan wajib PNG
             'file_sign'        => 'sometimes|file|mimes:png|max:1024',
-            // foto formal hanya image (tanpa pdf)
             'file_photo'       => 'sometimes|file|mimes:jpg,jpeg,png|max:2048',
+        ], [
+            // Field teks
+            'ktp.required' => 'NIK wajib diisi.',
+            'ktp.max'      => 'NIK maksimal 16 karakter.',
+            'npwp.max'     => 'NPWP maksimal 20 karakter.',
+            'ktp_notaris.max' => 'KTP Notaris maksimal 16 karakter.',
+
+            // File umum
+            'file_ktp.file'   => 'File KTP harus berupa berkas yang valid.',
+            'file_ktp.mimes'  => 'File KTP harus berupa JPG, JPEG, PNG, atau PDF.',
+            'file_ktp.max'    => 'Ukuran file KTP maksimal 2 MB.',
+
+            'file_kk.file'   => 'File KK harus berupa berkas yang valid.',
+            'file_kk.mimes'  => 'File KK harus berupa JPG, JPEG, PNG, atau PDF.',
+            'file_kk.max'    => 'Ukuran file KK maksimal 2 MB.',
+
+            'file_npwp.file'   => 'File NPWP harus berupa berkas yang valid.',
+            'file_npwp.mimes'  => 'File NPWP harus berupa JPG, JPEG, PNG, atau PDF.',
+            'file_npwp.max'    => 'Ukuran file NPWP maksimal 2 MB.',
+
+            'file_ktp_notaris.file'   => 'File KTP Notaris harus berupa berkas yang valid.',
+            'file_ktp_notaris.mimes'  => 'File KTP Notaris harus berupa JPG, JPEG, PNG, atau PDF.',
+            'file_ktp_notaris.max'    => 'Ukuran file KTP Notaris maksimal 2 MB.',
+
+            // File khusus
+            'file_sign.file'  => 'Tanda tangan harus berupa berkas yang valid.',
+            'file_sign.mimes' => 'Tanda tangan hanya diperbolehkan dalam format PNG.',
+            'file_sign.max'   => 'Ukuran tanda tangan maksimal 1 MB.',
+
+            'file_photo.file'  => 'Foto formal harus berupa berkas yang valid.',
+            'file_photo.mimes' => 'Foto formal hanya diperbolehkan dalam format JPG, JPEG, atau PNG.',
+            'file_photo.max'   => 'Ukuran foto formal maksimal 2 MB.',
         ]);
+
 
         if ($validator->fails()) {
             return response()->json([
