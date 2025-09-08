@@ -511,4 +511,96 @@ class DocumentRequirementController extends Controller
             'data'    => $doc
         ], 200);
     }
+
+    public function getRequirementByActivityNotarisForUser(Request $request, $idActivity, $idUser)
+    {
+        $user = $request->user();
+
+        $activity = Activity::with(['clients:id'])
+            ->where('id', $idActivity)
+            ->where('user_notaris_id', $user->id) // must be owner
+            ->first();
+
+        if (!$activity) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Activity tidak ditemukan atau Anda bukan pemilik.',
+                'data'    => null,
+            ], 404);
+        }
+
+        // pastikan target user adalah klien di activity
+        $isClient = $activity->clients->contains('id', (int) $idUser);
+        if (!$isClient) {
+            return response()->json([
+                'success' => false,
+                'message' => 'User target bukan klien pada aktivitas ini.',
+                'data'    => null,
+            ], 422);
+        }
+
+        $docs = DocumentRequirement::with(['requirement'])
+            ->where('activity_notaris_id', $activity->id)
+            ->where('user_id', (int) $idUser)
+            ->orderBy('id', 'asc')
+            ->get();
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Daftar requirement untuk klien berhasil diambil',
+            'data'    => $docs,
+        ], 200);
+    }
+
+    public function getRequirementByActivityNotaris(Request $request, $id)
+    {
+        $user = $request->user();
+
+        $activity = Activity::with(['clients:id,name,email'])
+            ->where('id', $id)
+            ->where('user_notaris_id', $user->id) // pastikan owner
+            ->first();
+
+        if (!$activity) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Activity tidak ditemukan atau Anda bukan pemilik.',
+                'data'    => null,
+            ], 404);
+        }
+
+        // build options klien untuk FE
+        $users = $activity->clients->map(function ($u) {
+            return [
+                'value' => $u->id,
+                'label' => $u->name ? "{$u->name} ({$u->email})" : ($u->email ?? "#{$u->id}"),
+                'id'    => $u->id,
+                'name'  => $u->name,
+                'email' => $u->email,
+            ];
+        })->values();
+
+        // (opsional) ringkasan jumlah dokumen per user
+        // $summary = DocumentRequirement::select('user_id')
+        //     ->where('activity_notaris_id', $activity->id)
+        //     ->selectRaw('COUNT(*) as total')
+        //     ->selectRaw("SUM(CASE WHEN status_approval='approved' THEN 1 ELSE 0 END) as approved")
+        //     ->selectRaw("SUM(CASE WHEN status_approval='rejected' THEN 1 ELSE 0 END) as rejected")
+        //     ->groupBy('user_id')
+        //     ->get();
+
+        return response()->json([
+            'success'  => true,
+            'message'  => 'Data requirement per aktivitas (notaris) berhasil diambil',
+            'data'     => [
+                'activity' => [
+                    'id'   => $activity->id,
+                    'name' => $activity->name,
+                    'deed' => $activity->deed ?? null, // kalau mau load deed, tambahkan with('deed')
+                ],
+                'users'    => $users,
+                // 'summary'  => $summary,
+            ],
+        ], 200);
+    }
 }

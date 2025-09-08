@@ -23,7 +23,7 @@ class Activity extends Model
     // tampilkan status_approval (virtual) di JSON
     protected $appends = ['status_approval'];
 
-    /** Relasi */
+    /** ================== Relasi ================== */
     public function deed()
     {
         return $this->belongsTo(Deed::class);
@@ -54,22 +54,34 @@ class Activity extends Model
         return $this->hasMany(Schedule::class);
     }
 
+    /**
+     * Records pivot client_activity (punya kolom: user_id, activity_id, status_approval, order, timestamps)
+     * Urutkan default berdasarkan pivot.order (asc), fallback id.
+     */
     public function clientActivities()
     {
-        return $this->hasMany(ClientActivity::class, 'activity_id');
+        return $this->hasMany(ClientActivity::class, 'activity_id')
+            ->orderBy('order', 'asc')
+            ->orderBy('id', 'asc');
     }
 
+    /**
+     * Daftar user klien (penghadap) melalui pivot client_activity.
+     * Sertakan kolom pivot 'status_approval' dan 'order', dan urut default oleh pivot.order.
+     */
+    // app/Models/Activity.php
     public function clients()
     {
         return $this->belongsToMany(User::class, 'client_activity', 'activity_id', 'user_id')
-            ->withPivot('status_approval')
+            ->withPivot(['status_approval', 'order'])   // <— tambahkan 'order'
             ->withTimestamps();
     }
 
-    /** ---------- Virtual global status dari pivot ---------- */
+
+    /** ===== Virtual global status dari pivot ===== */
     public function getStatusApprovalAttribute(): string
     {
-        // kalau belum diload, pakai query ringan
+        // Jika ada yang rejected → rejected
         $anyRejected = $this->clientActivities()
             ->where('status_approval', 'rejected')
             ->exists();
@@ -78,10 +90,10 @@ class Activity extends Model
             return 'rejected';
         }
 
-        // Ambil total klien yang seharusnya ada (deed->total_client)
+        // Total klien yang dibutuhkan (deed->total_client)
         $needed = (int) optional($this->deed)->total_client ?: 1;
 
-        // semua approved?
+        // Semua approved?
         $approvedCount = $this->clientActivities()
             ->where('status_approval', 'approved')
             ->count();
@@ -89,14 +101,13 @@ class Activity extends Model
         return $approvedCount >= $needed ? 'approved' : 'pending';
     }
 
-    /** ---------- Scopes berdasar pivot (bukan kolom) ---------- */
+    /** ===== Scopes berdasar pivot (bukan kolom langsung) ===== */
     public function scopeApproved($q)
     {
-        // approved jika TIDAK ada yang != approved, dan jumlah approved >= needed
+        // approved jika TIDAK ada yang != approved
         return $q->whereDoesntHave('clientActivities', function ($h) {
             $h->where('status_approval', '!=', 'approved');
         });
-        // catatan: kalau mau super akurat, bisa join/whereHas ke deed.total_client juga.
     }
 
     public function scopeRejected($q)

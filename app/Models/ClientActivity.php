@@ -15,6 +15,7 @@ class ClientActivity extends Model
         'user_id',
         'activity_id',
         'status_approval',
+        'order', // ⬅️ tambahkan ini
     ];
 
     // Relasi ke User

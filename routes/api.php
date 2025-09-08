@@ -113,57 +113,78 @@ Route::prefix('admin')->middleware('auth:sanctum')->group(function () {
 Route::prefix('notaris')->middleware('auth:sanctum')->group(function () {
     // hanya role user/admin yang boleh melihat
     Route::prefix('activity')->middleware('ability:notaris')->group(function () {
-        Route::get('/user/approved',        [NotarisActivityController::class, 'getByUserApproved']);
-        Route::get('/user/client',        [NotarisActivityController::class, 'getUsers']);
-        Route::get('/',        [NotarisActivityController::class, 'index']);
-        Route::post('/',       [NotarisActivityController::class, 'store']);
-        Route::post('/update/{id}',    [NotarisActivityController::class, 'update']);
-        Route::delete('/{id}', [NotarisActivityController::class, 'destroy']);
+        Route::get('/user/approved', [NotarisActivityController::class, 'getByUserApproved']);
+        Route::get('/user/client',   [NotarisActivityController::class, 'getUsers']);
+        Route::get('/',              [NotarisActivityController::class, 'index']);
+
+        // mark activity
+        Route::get('/mark-done/docs/{id}',  [NotarisActivityController::class, 'markDone']);
+
+        // Tambah middleware checkverif
+        Route::post('/',             [NotarisActivityController::class, 'store'])->middleware('checkverif');
+        Route::post('/update/{id}',  [NotarisActivityController::class, 'update'])->middleware('checkverif');
+        Route::delete('/{id}',       [NotarisActivityController::class, 'destroy'])->middleware('checkverif');
     });
-    Route::prefix('activity')->middleware('ability:notaris,penghadap')->group(function () {
-        Route::get('/{id}',    [NotarisActivityController::class, 'show']);
-    });
-    Route::prefix('track')->middleware('ability:notaris')->group(function () {
-        Route::get('/{id}', [TrackController::class, 'show']);
-        Route::post('/{id}', [TrackController::class, 'update']);
-    });
-    Route::prefix('schedule')->middleware('ability:notaris')->group(function () {
-        Route::get('/',        [ScheduleController::class, 'index']);
-        Route::get('/{id}',    [ScheduleController::class, 'show']);
-        Route::post('/',       [ScheduleController::class, 'store']);
-        Route::post('/update/{id}',    [ScheduleController::class, 'update']);
-        Route::delete('/{id}', [ScheduleController::class, 'destroy']);
-    });
-    Route::prefix('document-requirement')->middleware('ability:notaris')->group(function () {
-        Route::get('/by-activity-notaris/{id}',  [DocumentRequirementController::class, 'getRequirementByActivityNotaris']);
-        Route::post('/approval/{id}', [DocumentRequirementController::class, 'approval']);
-        Route::get('/activity/{id}',    [DocumentRequirementController::class, 'getByActivity']);
-    });
+
+    Route::prefix('activity')
+        ->middleware(['ability:notaris,penghadap', 'checkverif'])
+        ->group(function () {
+            Route::get('/{id}', [NotarisActivityController::class, 'show']);
+        });
+
+    Route::prefix('track')
+        ->middleware(['ability:notaris', 'checkverif'])
+        ->group(function () {
+            Route::get('/{id}', [TrackController::class, 'show']);
+            Route::post('/{id}', [TrackController::class, 'update']);
+        });
+
+    Route::prefix('schedule')
+        ->middleware(['ability:notaris', 'checkverif'])
+        ->group(function () {
+            Route::get('/', [ScheduleController::class, 'index']);
+            Route::get('/{id}', [ScheduleController::class, 'show']);
+            Route::post('/', [ScheduleController::class, 'store']);
+            Route::post('/update/{id}', [ScheduleController::class, 'update']);
+            Route::delete('/{id}', [ScheduleController::class, 'destroy']);
+        });
+
+    Route::prefix('document-requirement')
+        ->middleware(['ability:notaris', 'checkverif'])
+        ->group(function () {
+            Route::get('/by-activity-notaris/{id}', [DocumentRequirementController::class, 'getRequirementByActivityNotaris']);
+            Route::post('/by-activity-notaris/{idActivity}/{idUser}', [DocumentRequirementController::class, 'getRequirementByActivityNotarisForUser']);
+            Route::post('/approval/{id}', [DocumentRequirementController::class, 'approval']);
+            Route::get('/activity/{id}', [DocumentRequirementController::class, 'getByActivity']);
+        });
 });
 Route::prefix('user')->middleware('auth:sanctum')->group(function () {
     // hanya role user/admin yang boleh melihat
     Route::middleware('ability:penghadap,notaris,admin')->group(function () {
         Route::get('/profile', [UserController::class, 'getProfile']);
+        Route::get('/profile/{id}', [UserController::class, 'getProfileById']);
         Route::post('/update-profile', [UserController::class, 'updateProfile']);
         Route::post('/update-identity-profile', [UserController::class, 'updateIdentityProfile']);
 
-        Route::prefix('document-requirement')->group(function () {
-            Route::get('/by-activity-user/{id}',  [DocumentRequirementController::class, 'getRequirementByActivityUser']);
-            Route::get('/',        [DocumentRequirementController::class, 'index']);
-            Route::get('/{id}',    [DocumentRequirementController::class, 'show']);
-            Route::post('/',       [DocumentRequirementController::class, 'store']);
-            Route::delete('/{id}', [DocumentRequirementController::class, 'destroy']);
-        });
+        Route::prefix('document-requirement')
+            ->middleware(['checkverif'])
+            ->group(function () {
+                Route::get('/by-activity-user/{id}', [DocumentRequirementController::class, 'getRequirementByActivityUser']);
+                Route::get('/',                      [DocumentRequirementController::class, 'index']);
+                Route::get('/{id}',                  [DocumentRequirementController::class, 'show']);
+                Route::post('/',                     [DocumentRequirementController::class, 'store']);
+                Route::delete('/{id}',               [DocumentRequirementController::class, 'destroy']);
+            });
     });
     Route::middleware('ability:penghadap')->group(function () {
-        Route::post('/activity/approval/{id}', [ClientActivityController::class, 'clientApproval']);
+        Route::post('/activity/approval/{id}', [ClientActivityController::class, 'clientApproval'])->middleware('checkverif');
 
         Route::prefix('activity')->middleware('ability:penghadap')->group(function () {
             Route::get('/',        [ClientActivityController::class, 'index']);
             Route::get('/{id}',    [ClientActivityController::class, 'show']);
         });
-        Route::prefix('document-requirement')->middleware('ability:penghadap')->group(function () {
-            Route::post('/update/{id}',    [DocumentRequirementController::class, 'update']);
-        });
+    });
+    Route::prefix('document-requirement')->middleware('ability:penghadap,notaris')->group(function () {
+        Route::post('/update/{id}',    [DocumentRequirementController::class, 'update'])->middleware('checkverif');
     });
 });
