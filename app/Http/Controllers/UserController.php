@@ -9,6 +9,7 @@ use App\Models\Activity;
 use App\Models\Identity;
 use Illuminate\Support\Str;
 use Illuminate\Http\Request;
+use App\Models\ClientActivity;
 use Illuminate\Support\Facades\DB;
 use App\Models\DocumentRequirement;
 use Illuminate\Support\Facades\Auth;
@@ -74,6 +75,9 @@ class UserController extends Controller
                 'telepon' => $user->telepon,
                 'gender' => $user->gender,
                 'address' => $user->address,
+                'province' => $user->province,
+                'city' => $user->city,
+                'postal_code' => $user->postal_code,
                 'file_avatar' => $user->file_avatar,
                 'status_verification' => $user->status_verification,
                 'notes_verification' => $user->notes_verification,
@@ -272,9 +276,9 @@ class UserController extends Controller
         }
     }
 
-    public function getProfile(Request $request)
+    public function getProfileById(Request $request, $id)
     {
-        $user = $request->user();
+        $user = User::where('id', $id)->first();
         $identity = Identity::where('user_id', $user->id)->first();
 
         return response()->json([
@@ -289,6 +293,53 @@ class UserController extends Controller
                     'telepon' => $user->telepon,
                     'gender' => $user->gender,
                     'address' => $user->address,
+                    'province' => $user->province,
+                    'city' => $user->city,
+                    'postal_code' => $user->postal_code,
+                    'file_avatar' => $user->file_avatar,
+                    'status_verification' => $user->status_verification,
+                    'notes_verification' => $user->notes_verification,
+                    'created_at' => $user->created_at,
+                ],
+
+                // Data Identity
+                'identity' => [
+                    'ktp'              => $identity?->ktp,
+                    'npwp'             => $identity?->npwp,
+                    'ktp_notaris'      => $identity?->ktp_notaris,
+                    'file_ktp'         => $identity?->file_ktp,
+                    'file_kk'          => $identity?->file_kk,
+                    'file_npwp'        => $identity?->file_npwp,
+                    'file_ktp_notaris' => $identity?->file_ktp_notaris,
+                    'file_sign'        => $identity?->file_sign,
+                    'file_photo'       => $identity?->file_photo,
+                    'created_at'       => $identity?->created_at,
+                    'updated_at'       => $identity?->updated_at,
+                ]
+            ]
+        ], 200);
+    }
+    public function getProfile(Request $request)
+    {
+        $user = $request->user();
+        $identity = Identity::where('user_id', $user->id)->first();
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Profil berhasil diambil',
+            'data' => [
+                // Data User
+                'user' => [
+                    'id' => $user->id,
+                    'role_id' => $user->role_id,
+                    'name' => $user->name,
+                    'email' => $user->email,
+                    'telepon' => $user->telepon,
+                    'gender' => $user->gender,
+                    'address' => $user->address,
+                    'province' => $user->province,
+                    'city' => $user->city,
+                    'postal_code' => $user->postal_code,
                     'file_avatar' => $user->file_avatar,
                     'status_verification' => $user->status_verification,
                     'notes_verification' => $user->notes_verification,
@@ -315,14 +366,22 @@ class UserController extends Controller
 
     public function updateProfile(Request $request)
     {
-        // validasi konsisten
         $validasi = Validator::make($request->all(), [
-            'name'        => 'sometimes|string|max:255',
-            'gender'      => 'sometimes|string|in:male,female,lainnya', // sesuaikan opsi
-            'telepon'     => 'sometimes|string|max:50',
-            'address'     => 'sometimes|string|max:255',
-            'file_avatar' => 'sometimes|file|image|mimes:jpg,jpeg,png,webp|max:2048',
+            'name'         => 'sometimes|string|max:255',
+            'gender'       => 'sometimes|string|in:male,female,lainnya',
+            'telepon'      => 'sometimes|string|max:50',
+            'address'      => 'sometimes|nullable|string|max:255',
+
+            // kolom baru
+            'city'         => 'sometimes|nullable|string|max:100',
+            'province'     => 'sometimes|nullable|string|max:100',
+            'postal_code'  => ['sometimes', 'nullable', 'string', 'max:20', 'regex:/^[0-9\-\s]+$/'],
+
+            'file_avatar'  => 'sometimes|file|image|mimes:jpg,jpeg,png,webp|max:2048',
+        ], [
+            'postal_code.regex' => 'Kode pos hanya boleh berisi angka, spasi, atau tanda minus.',
         ]);
+
         if ($validasi->fails()) {
             return response()->json([
                 'success' => false,
@@ -333,40 +392,36 @@ class UserController extends Controller
 
         $user = $request->user();
 
-        // update field teks
-        foreach (['name', 'gender', 'telepon', 'address'] as $f) {
-            if ($request->filled($f)) {
-                $user->{$f} = $request->input($f);
-            }
-        }
+        // ambil semua field terverifikasi kecuali file
+        $data = $validasi->safe()->except(['file_avatar']);
 
-        // upload avatar ke Cloudinary
+        // mass assignment ke model User (pastikan $fillable mencakup field2 ini)
+        // contoh di model: protected $fillable = ['name','gender','telepon','address','city','province','postal_code','file_avatar','file_avatar_path'];
+        $user->fill($data);
+
+        // upload avatar ke Cloudinary (opsional)
         if ($request->hasFile('file_avatar')) {
             // hapus lama kalau ada
             if (!empty($user->file_avatar_path)) {
-                // di contohmu: destroy pakai path/public_id
                 Cloudinary::destroy($user->file_avatar_path);
             }
 
-            // siapkan folder & public_id
             $imageName    = $user->id . '_' . now()->format('YmdHis');
             $folder       = "enotaris/users/{$user->id}/profile";
             $publicIdFull = $folder . '/' . $imageName;
 
-            // upload
             $uploaded = Cloudinary::upload(
                 $request->file('file_avatar')->getRealPath(),
                 [
-                    'folder'     => $folder . '/',
-                    'public_id'  => $imageName,
-                    'overwrite'  => true,
+                    'folder'        => $folder . '/',
+                    'public_id'     => $imageName,
+                    'overwrite'     => true,
                     'resource_type' => 'image',
                 ]
             );
 
-            // simpan URL + path (public_id)
             $user->file_avatar      = $uploaded->getSecurePath(); // URL https
-            $user->file_avatar_path = $publicIdFull;              // untuk destroy
+            $user->file_avatar_path = $publicIdFull;              // public_id untuk destroy
         }
 
         $user->save();
@@ -375,13 +430,16 @@ class UserController extends Controller
             'success' => true,
             'message' => 'Profil berhasil diperbarui',
             'data'    => [
-                'id'            => $user->id,
-                'name'          => $user->name,
-                'email'         => $user->email,
-                'telepon'       => $user->telepon,
-                'gender'        => $user->gender,
-                'address'       => $user->address,
-                'file_avatar'   => $user->file_avatar,
+                'id'               => $user->id,
+                'name'             => $user->name,
+                'email'            => $user->email,
+                'telepon'          => $user->telepon,
+                'gender'           => $user->gender,
+                'address'          => $user->address,
+                'city'             => $user->city,
+                'province'         => $user->province,
+                'postal_code'      => $user->postal_code,
+                'file_avatar'      => $user->file_avatar,
                 'file_avatar_path' => $user->file_avatar_path,
             ]
         ], 200);
@@ -395,16 +453,46 @@ class UserController extends Controller
             'npwp'           => 'sometimes|nullable|string|max:20',
             'ktp_notaris'    => 'sometimes|nullable|string|max:16',
 
-            // kalau izinkan pdf, hapus 'image', cukup 'mimes' atau 'mimetypes'
             'file_ktp'         => 'sometimes|file|mimes:jpg,jpeg,png,pdf|max:2048',
             'file_kk'          => 'sometimes|file|mimes:jpg,jpeg,png,pdf|max:2048',
             'file_npwp'        => 'sometimes|file|mimes:jpg,jpeg,png,pdf|max:2048',
             'file_ktp_notaris' => 'sometimes|file|mimes:jpg,jpeg,png,pdf|max:2048',
-            // tanda tangan wajib PNG
             'file_sign'        => 'sometimes|file|mimes:png|max:1024',
-            // foto formal hanya image (tanpa pdf)
             'file_photo'       => 'sometimes|file|mimes:jpg,jpeg,png|max:2048',
+        ], [
+            // Field teks
+            'ktp.required' => 'NIK wajib diisi.',
+            'ktp.max'      => 'NIK maksimal 16 karakter.',
+            'npwp.max'     => 'NPWP maksimal 20 karakter.',
+            'ktp_notaris.max' => 'KTP Notaris maksimal 16 karakter.',
+
+            // File umum
+            'file_ktp.file'   => 'File KTP harus berupa berkas yang valid.',
+            'file_ktp.mimes'  => 'File KTP harus berupa JPG, JPEG, PNG, atau PDF.',
+            'file_ktp.max'    => 'Ukuran file KTP maksimal 2 MB.',
+
+            'file_kk.file'   => 'File KK harus berupa berkas yang valid.',
+            'file_kk.mimes'  => 'File KK harus berupa JPG, JPEG, PNG, atau PDF.',
+            'file_kk.max'    => 'Ukuran file KK maksimal 2 MB.',
+
+            'file_npwp.file'   => 'File NPWP harus berupa berkas yang valid.',
+            'file_npwp.mimes'  => 'File NPWP harus berupa JPG, JPEG, PNG, atau PDF.',
+            'file_npwp.max'    => 'Ukuran file NPWP maksimal 2 MB.',
+
+            'file_ktp_notaris.file'   => 'File KTP Notaris harus berupa berkas yang valid.',
+            'file_ktp_notaris.mimes'  => 'File KTP Notaris harus berupa JPG, JPEG, PNG, atau PDF.',
+            'file_ktp_notaris.max'    => 'Ukuran file KTP Notaris maksimal 2 MB.',
+
+            // File khusus
+            'file_sign.file'  => 'Tanda tangan harus berupa berkas yang valid.',
+            'file_sign.mimes' => 'Tanda tangan hanya diperbolehkan dalam format PNG.',
+            'file_sign.max'   => 'Ukuran tanda tangan maksimal 1 MB.',
+
+            'file_photo.file'  => 'Foto formal harus berupa berkas yang valid.',
+            'file_photo.mimes' => 'Foto formal hanya diperbolehkan dalam format JPG, JPEG, atau PNG.',
+            'file_photo.max'   => 'Ukuran foto formal maksimal 2 MB.',
         ]);
+
 
         if ($validator->fails()) {
             return response()->json([
@@ -506,6 +594,9 @@ class UserController extends Controller
                         'telepon'            => $user->telepon,
                         'gender'             => $user->gender,
                         'address'            => $user->address,
+                        'province'            => $user->province,
+                        'city'            => $user->city,
+                        'postal_code'            => $user->postal_code,
                         'file_avatar'        => $user->file_avatar,
                         'file_avatar_path'   => $user->file_avatar_path,
 

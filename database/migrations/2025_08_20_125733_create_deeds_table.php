@@ -10,10 +10,12 @@ return new class extends Migration
     {
         Schema::create('deeds', function (Blueprint $table) {
             $table->id();
+            $table->unsignedBigInteger('user_notaris_id');
             $table->string('name', 255)->nullable(false);
             $table->string('description', 255)->nullable(false);
-            $table->integer('total_client')->nullable(false);
             $table->timestamps();
+
+            $table->foreign('user_notaris_id')->references('id')->on('users')->cascadeOnUpdate();
         });
     }
 

@@ -5,7 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Deed;
 use App\Models\User;
 use App\Models\Activity;
-use App\Models\Track;                 // ⬅️ tambahkan
+use App\Models\Track;
 use App\Models\ClientActivity;
 use App\Models\DocumentRequirement;
 use Illuminate\Support\Str;
@@ -16,10 +16,8 @@ use CloudinaryLabs\CloudinaryLaravel\Facades\Cloudinary;
 
 class NotarisActivityController extends Controller
 {
-    
     /**
-     * GET /activities
-     * Query: search, status (pending|approved|rejected), per_page
+     * GET /notaris/activity
      */
     public function index(Request $request)
     {
@@ -31,7 +29,7 @@ class NotarisActivityController extends Controller
         $query = Activity::with([
             'deed',
             'notaris',
-            'track',                       // tetap load track
+            'track',
             'clients:id,name,email',
             'clientActivities',
             'schedules'
@@ -85,9 +83,9 @@ class NotarisActivityController extends Controller
     }
 
     /**
-     * GET /activities/{id}
-     * Akses: notaris pemilik, atau user yang termasuk di client_activity
+     * GET /notaris/activity/{id}
      */
+    // App/Http/Controllers/NotarisActivityController.php
     public function show(Request $request, $id)
     {
         $user = $request->user();
@@ -96,8 +94,15 @@ class NotarisActivityController extends Controller
             'deed.requirements',
             'notaris',
             'track',
-            'clients.identity',
-            'clientActivities',
+            'clients' => function ($query) {
+                $query->with('identity')
+                    ->orderBy('client_activity.order', 'asc')   // <— pakai client_activity (singular)
+                    ->orderBy('client_activity.id', 'asc');     // fallback
+            },
+            'clientActivities' => function ($query) {
+                $query->orderBy('order', 'asc')                   // <— kolom order di pivot
+                    ->orderBy('id', 'asc');                     // fallback
+            },
             'schedules'
         ])
             ->where('id', $id)
@@ -124,23 +129,19 @@ class NotarisActivityController extends Controller
         ], 200);
     }
 
+
     /**
-     * POST /activities
-     * Body:
-     * - name (string)
-     * - deed_id (exists:deeds,id)
-     * - client_ids (array of user id role_id=2) — jumlah HARUS = deeds.total_client
-     * (track dibuat OTOMATIS)
+     * POST /notaris/activity
      */
     public function store(Request $request)
     {
         $user = $request->user();
 
         $validasi = Validator::make($request->all(), [
-            'name'          => 'required|string|max:255',
-            'deed_id'       => 'required|exists:deeds,id',
-            'client_ids'    => 'required|array|min:1',
-            'client_ids.*'  => 'required|integer|exists:users,id',
+            'name'         => 'required|string|max:255',
+            'deed_id'      => 'required|exists:deeds,id',
+            'client_ids'   => 'required|array|min:1',
+            'client_ids.*' => 'required|integer|exists:users,id',
         ], [
             'client_ids.required' => 'Daftar klien wajib diisi.',
             'client_ids.array'    => 'Format daftar klien tidak valid.',
@@ -157,13 +158,13 @@ class NotarisActivityController extends Controller
 
         $data = $validasi->validated();
 
-        // Validasi role client = penghadap
-        $clients = User::whereIn('id', $data['client_ids'])
+        // Validasi role penghadap
+        $validIds = User::whereIn('id', $data['client_ids'])
             ->where('role_id', 2)
             ->pluck('id')
             ->all();
 
-        if (count($clients) !== count($data['client_ids'])) {
+        if (count($validIds) !== count($data['client_ids'])) {
             return response()->json([
                 'success' => false,
                 'message' => 'Semua klien harus memiliki role penghadap.',
@@ -171,19 +172,16 @@ class NotarisActivityController extends Controller
             ], 422);
         }
 
-        // Cek kebutuhan jumlah klien sesuai deed->total_client
         $deed   = Deed::with('requirements')->find($data['deed_id']);
-        $needed = (int) $deed->total_client;
-
-        if (count($clients) !== $needed) {
-            return response()->json([
-                'success' => false,
-                'message' => "Akta ini memerlukan {$needed} klien.",
-                'data'    => null,
-            ], 422);
+        // Susun kembali sesuai urutan FE (hanya id valid)
+        $orderedClientIds = [];
+        foreach ($data['client_ids'] as $cid) {
+            if (in_array($cid, $validIds, true)) {
+                $orderedClientIds[] = $cid;
+            }
         }
 
-        return DB::transaction(function () use ($user, $deed, $data, $clients) {
+        return DB::transaction(function () use ($user, $deed, $data, $orderedClientIds) {
             // 1) Buat Activity
             $activity = Activity::create([
                 'name'                => $data['name'],
@@ -191,13 +189,12 @@ class NotarisActivityController extends Controller
                 'user_notaris_id'     => $user->id,
                 'activity_notaris_id' => $user->id,
                 'tracking_code'       => 'ACT-' . strtoupper(Str::random(8)),
-                'status_approval'     => 'pending',
             ]);
 
-            // 2) Buat Track default dan tautkan ke Activity
+            // 2) Buat Track default & tautkan
             $track = Track::create([
                 'status_invite'   => 'done',
-                'status_respond'  => 'pending',
+                'status_respond'  => 'todo',
                 'status_docs'     => 'pending',
                 'status_draft'    => 'pending',
                 'status_schedule' => 'pending',
@@ -207,14 +204,16 @@ class NotarisActivityController extends Controller
             $activity->track_id = $track->id;
             $activity->save();
 
-            // 3) Isi pivot client_activity (pending)
+            // 3) Isi pivot client_activity + order
             $now  = now();
             $rows = [];
-            foreach ($clients as $uid) {
+            $ord  = 1;
+            foreach ($orderedClientIds as $uid) {
                 $rows[] = [
                     'user_id'         => $uid,
                     'activity_id'     => $activity->id,
                     'status_approval' => 'pending',
+                    'order'           => $ord++,
                     'created_at'      => $now,
                     'updated_at'      => $now,
                 ];
@@ -224,7 +223,7 @@ class NotarisActivityController extends Controller
             // 4) Generate DocumentRequirement per client & requirement
             $docRows = [];
             foreach ($deed->requirements as $req) {
-                foreach ($clients as $uid) {
+                foreach ($orderedClientIds as $uid) {
                     $docRows[] = [
                         'activity_notaris_id' => $activity->id,
                         'user_id'             => $uid,
@@ -248,8 +247,12 @@ class NotarisActivityController extends Controller
                 'deed.requirements',
                 'notaris',
                 'track',
-                'clients',
-                'clientActivities',
+                'clients' => function ($q) {
+                    $q->orderBy('client_activity.order', 'asc');
+                },
+                'clientActivities' => function ($q) {
+                    $q->orderBy('order', 'asc');
+                },
                 'schedules',
             ]);
 
@@ -262,9 +265,7 @@ class NotarisActivityController extends Controller
     }
 
     /**
-     * PUT /activities/{id}
-     * Dapat mengubah: name, deed_id, client_ids, status_approval
-     * (track_id TIDAK bisa diubah lewat endpoint ini)
+     * POST /notaris/activity/update/{id}
      */
     public function update(Request $request, $id)
     {
@@ -283,12 +284,10 @@ class NotarisActivityController extends Controller
         }
 
         $validasi = Validator::make($request->all(), [
-            'name'            => 'sometimes|required|string|max:255',
-            'deed_id'         => 'sometimes|required|exists:deeds,id',
-            'client_ids'      => 'sometimes|required|array|min:1',
-            'client_ids.*'    => 'required|integer|exists:users,id',
-            'status_approval' => 'sometimes|required|in:pending,approved,rejected',
-            // note: tidak ada track_id di sini
+            'name'         => 'sometimes|required|string|max:255',
+            'deed_id'      => 'sometimes|required|exists:deeds,id',
+            'client_ids'   => 'sometimes|required|array|min:1',
+            'client_ids.*' => 'required|integer|exists:users,id',
         ]);
 
         if ($validasi->fails()) {
@@ -302,76 +301,84 @@ class NotarisActivityController extends Controller
         $data = $validasi->validated();
 
         return DB::transaction(function () use ($data, $activity) {
-
-            // Jika deed berubah, validasi jumlah client sesuai deed baru
+            // Jika deed berubah, cek kebutuhan jumlah klien terhadap data yang akan dipakai
             if (isset($data['deed_id'])) {
-                $deed = Deed::with('requirements')->find($data['deed_id']);
-                $currentClientIds = $activity->clients()->pluck('users.id')->all();
+                $deedNew = Deed::with('requirements')->find($data['deed_id']);
 
-                // Jika client_ids ikut dikirim, gunakan itu; jika tidak, pakai klien yang sudah ada
+                // Tentukan calon daftar klien yang akan aktif setelah update
                 if (isset($data['client_ids'])) {
-                    $newClients = User::whereIn('id', $data['client_ids'])
+                    $validIds = User::whereIn('id', $data['client_ids'])
                         ->where('role_id', 2)
-                        ->pluck('id')->all();
+                        ->pluck('id')
+                        ->all();
+
+                    // susun sesuai urutan FE
+                    $orderedClientIds = [];
+                    foreach ($data['client_ids'] as $cid) {
+                        if (in_array($cid, $validIds, true)) {
+                            $orderedClientIds[] = $cid;
+                        }
+                    }
                 } else {
-                    $newClients = $currentClientIds;
+                    // pakai klien yang sudah ada sekarang (urut berdasar pivot.order)
+                    $orderedClientIds = $activity->clientActivities()
+                        ->orderBy('order', 'asc')
+                        ->pluck('user_id')
+                        ->all();
                 }
 
-                $needed = (int) $deed->total_client;
-                if (count($newClients) !== $needed) {
-                    abort(response()->json([
-                        'success' => false,
-                        'message' => "Akta ini memerlukan {$needed} klien.",
-                        'data'    => null,
-                    ], 422));
-                }
-
-                $activity->deed_id = $deed->id;
+                $activity->deed_id = $deedNew->id;
+                $activity->save();
             }
 
-            if (isset($data['name']))            $activity->name = $data['name'];
-            if (isset($data['status_approval'])) $activity->status_approval = $data['status_approval'];
+            if (isset($data['name'])) {
+                $activity->name = $data['name'];
+                $activity->save();
+            }
 
-            $activity->save();
-
-            // Sinkronisasi klien jika client_ids dikirim
+            // Jika client_ids dikirim → reset pivot & set order baru + regenerate documents
             if (isset($data['client_ids'])) {
-                $clientIds = User::whereIn('id', $data['client_ids'])
+                $validIds = User::whereIn('id', $data['client_ids'])
                     ->where('role_id', 2)
-                    ->pluck('id')->all();
+                    ->pluck('id')
+                    ->all();
 
-                $deed   = $activity->deed()->first();
-                $needed = (int) $deed->total_client;
-                if (count($clientIds) !== $needed) {
-                    abort(response()->json([
-                        'success' => false,
-                        'message' => "Akta ini memerlukan {$needed} klien.",
-                        'data'    => null,
-                    ], 422));
+                $orderedClientIds = [];
+                foreach ($data['client_ids'] as $cid) {
+                    if (in_array($cid, $validIds, true)) {
+                        $orderedClientIds[] = $cid;
+                    }
                 }
 
+                // Validasi jumlah sesuai deed aktif saat ini
+                $deed = $activity->deed()->first();
+                
                 // Reset pivot
                 ClientActivity::where('activity_id', $activity->id)->delete();
 
+                // Insert ulang pivot + order
                 $now  = now();
                 $rows = [];
-                foreach ($clientIds as $uid) {
+                $ord  = 1;
+                foreach ($orderedClientIds as $uid) {
                     $rows[] = [
                         'user_id'         => $uid,
                         'activity_id'     => $activity->id,
                         'status_approval' => 'pending',
+                        'order'           => $ord++,
                         'created_at'      => $now,
                         'updated_at'      => $now,
                     ];
                 }
                 ClientActivity::insert($rows);
 
-                // Regenerasi DocumentRequirement agar sinkron
+                // Regenerasi DocumentRequirement
                 DocumentRequirement::where('activity_notaris_id', $activity->id)->delete();
                 $deed = $activity->deed()->with('requirements')->first();
+
                 $docRows = [];
                 foreach ($deed->requirements as $req) {
-                    foreach ($clientIds as $uid) {
+                    foreach ($orderedClientIds as $uid) {
                         $docRows[] = [
                             'activity_notaris_id' => $activity->id,
                             'user_id'             => $uid,
@@ -392,7 +399,17 @@ class NotarisActivityController extends Controller
                 }
             }
 
-            $activity->load(['deed', 'notaris', 'track', 'clients', 'clientActivities']);
+            $activity->load([
+                'deed',
+                'notaris',
+                'track',
+                'clients' => function ($q) {
+                    $q->orderBy('client_activity.order', 'asc');
+                },
+                'clientActivities' => function ($q) {
+                    $q->orderBy('order', 'asc');
+                },
+            ]);
 
             return response()->json([
                 'success' => true,
@@ -403,7 +420,7 @@ class NotarisActivityController extends Controller
     }
 
     /**
-     * DELETE /activities/{id}
+     * DELETE /notaris/activity/{id}
      */
     public function destroy(Request $request, $id)
     {
@@ -421,9 +438,19 @@ class NotarisActivityController extends Controller
             ], 404);
         }
 
+        // ====== Proteksi penghapusan (silakan sesuaikan kebijakan) ======
+        // Saat ini kamu blok kalau global status 'approved' (semua klien setuju)
+        // atau ada salah satu klien 'approved'.
+        // -> Jika ingin TETAP boleh menghapus walau track.status_respond = 'done',
+        //    hapus/ubah blok ini sesuai kebutuhan.
+
         $hasApproved = $activity->clientActivities()
             ->where('status_approval', 'approved')
             ->exists();
+
+        // Jika kamu ingin memblok hanya kalau SUDAH TANDA TANGAN / CETAK, ganti ceknya ke track:
+        // $lockedByTrack = in_array(optional($activity->track)->status_sign, ['done'])
+        //               || in_array(optional($activity->track)->status_print, ['done']);
 
         if ($activity->status_approval === 'approved' || $hasApproved) {
             return response()->json([
@@ -432,57 +459,53 @@ class NotarisActivityController extends Controller
                 'data'    => null
             ], 409);
         }
+        // ===============================================================
 
         try {
             DB::beginTransaction();
 
-            $activity->documentRequirements()
-                ->select(['id', 'file_path'])
-                ->chunkById(200, function ($docs) {
-                    foreach ($docs as $doc) {
-                        if (!empty($doc->file_path)) {
-                            try {
-                                Cloudinary::destroy($doc->file_path);
-                            } catch (\Throwable $e) {
-                            }
-                        }
-                        DocumentRequirement::where('id', $doc->id)->delete();
-                    }
-                });
+            // simpan track_id untuk dihapus setelah activity hilang
+            $trackId = $activity->track_id;
 
+            // 1) Hapus anak-anaknya
+            //    (kalau kamu perlu hapus file Cloudinary, lakukan di sini lebih dulu)
+            $activity->documentRequirements()->delete();
             $activity->draftDeeds()->delete();
             $activity->schedules()->delete();
             $activity->clientActivities()->delete();
 
-            // (opsional) ikut hapus track terkait agar rapi
-            if ($activity->track_id) {
-                Track::where('id', $activity->track_id)->delete();
-            }
-
+            // 2) Hapus activity TERLEBIH DULU
             $activity->delete();
+
+            // 3) (Opsional) Hapus track setelah activity dihapus
+            if ($trackId) {
+                Track::where('id', $trackId)->delete();
+                // Alternatif kalau FK dibuat set null:
+                // Activity::where('id', $id)->update(['track_id' => null]);
+                // Track::where('id', $trackId)->delete();
+            }
 
             DB::commit();
 
             return response()->json([
                 'success' => true,
-                'message' => 'Aktivitas dan seluruh data terkait berhasil dihapus',
+                'message' => 'Aktivitas berhasil dihapus',
                 'data'    => null
             ], 200);
         } catch (\Throwable $e) {
             DB::rollBack();
 
+            // tampilkan pesan singkat agar FE enak dibaca
+            $msg = method_exists($e, 'getMessage') ? $e->getMessage() : 'Terjadi kesalahan saat menghapus aktivitas.';
             return response()->json([
                 'success' => false,
-                'message' => 'Terjadi kesalahan saat menghapus aktivitas.',
+                'message' => $msg,
                 'data'    => null
             ], 500);
         }
     }
 
-    /**
-     * PUT /activities/{id}/approve
-     * (tetap ada status global activity)
-     */
+
     public function approve($id)
     {
         $activity = Activity::find($id);
@@ -504,9 +527,6 @@ class NotarisActivityController extends Controller
         ], 200);
     }
 
-    /**
-     * PUT /activities/{id}/reject
-     */
     public function reject($id)
     {
         $activity = Activity::find($id);
@@ -529,14 +549,13 @@ class NotarisActivityController extends Controller
     }
 
     /**
-     * GET /activities/users
-     * Ambil daftar calon klien (role penghadap & approved)
+     * GET /notaris/activity/user/client
      */
     public function getUsers(Request $request)
     {
         $search  = $request->query('search');
 
-        $query = \App\Models\User::query()
+        $query = User::query()
             ->select(['id', 'name', 'email', 'telepon', 'gender', 'status_verification', 'role_id'])
             ->with(['identity:id,user_id,file_photo'])
             ->where('role_id', 2)
@@ -565,6 +584,35 @@ class NotarisActivityController extends Controller
             'success' => true,
             'message' => 'Daftar klien terverifikasi berhasil diambil',
             'data'    => $options,
+        ], 200);
+    }
+
+
+    public function markDone($id)
+    {
+
+        $activity = Activity::find($id);
+        if (!$activity) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Aktivitas tidak ditemukan',
+                'data'    => null
+            ], 404);
+        }
+
+        $activity->track()->update([
+            'status_docs'  => 'done',
+            'status_draft' => 'todo',
+        ]);
+
+        // ambil ulang data track yang fresh
+        $activity->load('track');
+
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Status Doc aktivitas berhasil ditandai selesai cui',
+            'data'    => $activity->track
         ], 200);
     }
 }
