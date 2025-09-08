@@ -15,11 +15,16 @@ class DeedController extends Controller
      */
     public function index(Request $request)
     {
+        $user = $request->user();
         $q        = $request->query('search');
         $perPage  = (int)($request->query('per_page', 10));
         $perPage  = $perPage > 0 ? $perPage : 10;
 
-        $query = Deed::with('requirements');
+        if ($user->role_id === 1) {
+            $query = Deed::with('requirements');
+        } else {
+            $query = Deed::with('requirements')->where('user_notaris_id', $user->id);
+        }
 
         if ($q) {
             $query->where(function ($sub) use ($q) {
@@ -74,7 +79,6 @@ class DeedController extends Controller
         $validasi = Validator::make($request->all(), [
             'name'         => 'required|string|max:255|unique:deeds,name',
             'description'  => 'required|string|max:255',
-            'total_client' => 'required|integer|min:1|max:10',
         ], [
             'name.required'         => 'Nama akta wajib diisi.',
             'name.string'           => 'Nama akta harus berupa teks.',
@@ -83,10 +87,6 @@ class DeedController extends Controller
             'description.required'  => 'Deskripsi wajib diisi.',
             'description.string'    => 'Deskripsi harus berupa teks.',
             'description.max'       => 'Deskripsi maksimal 255 karakter.',
-            'total_client.required' => 'Jumlah penghadap wajib diisi.',
-            'total_client.integer'  => 'Jumlah penghadap harus berupa angka.',
-            'total_client.min'      => 'Jumlah penghadap minimal 1.',
-            'total_client.max'      => 'Jumlah penghadap maksimal 10.',
         ]);
 
         if ($validasi->fails()) {
@@ -97,7 +97,15 @@ class DeedController extends Controller
             ], 422);
         }
 
-        $deed = Deed::create($validasi->validated());
+
+        $user = $request->user();
+
+        // ambil hasil validasi, lalu tambahkan kolom ekstra
+        $data = $validasi->validated();
+        $data['user_notaris_id'] = $user->id;
+
+        $deed = Deed::create($data);
+
 
         return response()->json([
             'success' => true,
@@ -124,7 +132,6 @@ class DeedController extends Controller
         $validasi = Validator::make($request->all(), [
             'name'         => 'required|string|max:255|unique:deeds,name,' . $deed->id,
             'description'  => 'required|string|max:255',
-            'total_client' => 'required|integer|min:1|max:10',
         ], [
             'name.required'         => 'Nama akta wajib diisi.',
             'name.string'           => 'Nama akta harus berupa teks.',
@@ -133,10 +140,6 @@ class DeedController extends Controller
             'description.required'  => 'Deskripsi wajib diisi.',
             'description.string'    => 'Deskripsi harus berupa teks.',
             'description.max'       => 'Deskripsi maksimal 255 karakter.',
-            'total_client.required' => 'Jumlah penghadap wajib diisi.',
-            'total_client.integer'  => 'Jumlah penghadap harus berupa angka.',
-            'total_client.min'      => 'Jumlah penghadap minimal 1.',
-            'total_client.max'      => 'Jumlah penghadap maksimal 10.',
         ]);
 
         if ($validasi->fails()) {
@@ -149,13 +152,11 @@ class DeedController extends Controller
 
         $data = $validasi->validated();
 
-        foreach (['name', 'description', 'total_client'] as $f) {
-            if (array_key_exists($f, $data)) {
-                $deed->{$f} = $data[$f];
-            }
-        }
+        // misalnya mau update kolom tambahan (contoh: user_notaris_id)
+        $data['user_notaris_id'] = $request->user()->id;
 
-        $deed->save();
+        // langsung mass assignment
+        $deed->update($data);
 
         return response()->json([
             'success' => true,
@@ -163,6 +164,7 @@ class DeedController extends Controller
             'data'    => $deed
         ], 200);
     }
+
 
     /**
      * DELETE /deeds/{id}

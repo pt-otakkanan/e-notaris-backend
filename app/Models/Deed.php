@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\User;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 
@@ -12,12 +13,9 @@ class Deed extends Model
     protected $fillable = [
         'name',
         'description',
-        'total_client', // ganti is_double_client -> total_client
+        'user_notaris_id',
     ];
 
-    protected $casts = [
-        'total_client' => 'integer',
-    ];
 
     /** Relasi */
     public function requirements()
@@ -35,6 +33,10 @@ class Deed extends Model
         return $this->hasMany(MainValueDeed::class, 'deed_id');
     }
 
+    public function notaris()
+    {
+        return $this->belongsTo(User::class, 'user_notaris_id');
+    }
     /** Helper opsional */
     public function requiredClientsCount(): int
     {

@@ -117,6 +117,9 @@ Route::prefix('notaris')->middleware('auth:sanctum')->group(function () {
         Route::get('/user/client',   [NotarisActivityController::class, 'getUsers']);
         Route::get('/',              [NotarisActivityController::class, 'index']);
 
+        // mark activity
+        Route::get('/mark-done/docs/{id}',  [NotarisActivityController::class, 'markDone']);
+
         // Tambah middleware checkverif
         Route::post('/',             [NotarisActivityController::class, 'store'])->middleware('checkverif');
         Route::post('/update/{id}',  [NotarisActivityController::class, 'update'])->middleware('checkverif');

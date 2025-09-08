@@ -75,6 +75,9 @@ class UserController extends Controller
                 'telepon' => $user->telepon,
                 'gender' => $user->gender,
                 'address' => $user->address,
+                'province' => $user->province,
+                'city' => $user->city,
+                'postal_code' => $user->postal_code,
                 'file_avatar' => $user->file_avatar,
                 'status_verification' => $user->status_verification,
                 'notes_verification' => $user->notes_verification,
@@ -290,6 +293,9 @@ class UserController extends Controller
                     'telepon' => $user->telepon,
                     'gender' => $user->gender,
                     'address' => $user->address,
+                    'province' => $user->province,
+                    'city' => $user->city,
+                    'postal_code' => $user->postal_code,
                     'file_avatar' => $user->file_avatar,
                     'status_verification' => $user->status_verification,
                     'notes_verification' => $user->notes_verification,
@@ -325,11 +331,15 @@ class UserController extends Controller
                 // Data User
                 'user' => [
                     'id' => $user->id,
+                    'role_id' => $user->role_id,
                     'name' => $user->name,
                     'email' => $user->email,
                     'telepon' => $user->telepon,
                     'gender' => $user->gender,
                     'address' => $user->address,
+                    'province' => $user->province,
+                    'city' => $user->city,
+                    'postal_code' => $user->postal_code,
                     'file_avatar' => $user->file_avatar,
                     'status_verification' => $user->status_verification,
                     'notes_verification' => $user->notes_verification,
@@ -356,14 +366,22 @@ class UserController extends Controller
 
     public function updateProfile(Request $request)
     {
-        // validasi konsisten
         $validasi = Validator::make($request->all(), [
-            'name'        => 'sometimes|string|max:255',
-            'gender'      => 'sometimes|string|in:male,female,lainnya', // sesuaikan opsi
-            'telepon'     => 'sometimes|string|max:50',
-            'address'     => 'sometimes|string|max:255',
-            'file_avatar' => 'sometimes|file|image|mimes:jpg,jpeg,png,webp|max:2048',
+            'name'         => 'sometimes|string|max:255',
+            'gender'       => 'sometimes|string|in:male,female,lainnya',
+            'telepon'      => 'sometimes|string|max:50',
+            'address'      => 'sometimes|nullable|string|max:255',
+
+            // kolom baru
+            'city'         => 'sometimes|nullable|string|max:100',
+            'province'     => 'sometimes|nullable|string|max:100',
+            'postal_code'  => ['sometimes', 'nullable', 'string', 'max:20', 'regex:/^[0-9\-\s]+$/'],
+
+            'file_avatar'  => 'sometimes|file|image|mimes:jpg,jpeg,png,webp|max:2048',
+        ], [
+            'postal_code.regex' => 'Kode pos hanya boleh berisi angka, spasi, atau tanda minus.',
         ]);
+
         if ($validasi->fails()) {
             return response()->json([
                 'success' => false,
@@ -374,40 +392,36 @@ class UserController extends Controller
 
         $user = $request->user();
 
-        // update field teks
-        foreach (['name', 'gender', 'telepon', 'address'] as $f) {
-            if ($request->filled($f)) {
-                $user->{$f} = $request->input($f);
-            }
-        }
+        // ambil semua field terverifikasi kecuali file
+        $data = $validasi->safe()->except(['file_avatar']);
 
-        // upload avatar ke Cloudinary
+        // mass assignment ke model User (pastikan $fillable mencakup field2 ini)
+        // contoh di model: protected $fillable = ['name','gender','telepon','address','city','province','postal_code','file_avatar','file_avatar_path'];
+        $user->fill($data);
+
+        // upload avatar ke Cloudinary (opsional)
         if ($request->hasFile('file_avatar')) {
             // hapus lama kalau ada
             if (!empty($user->file_avatar_path)) {
-                // di contohmu: destroy pakai path/public_id
                 Cloudinary::destroy($user->file_avatar_path);
             }
 
-            // siapkan folder & public_id
             $imageName    = $user->id . '_' . now()->format('YmdHis');
             $folder       = "enotaris/users/{$user->id}/profile";
             $publicIdFull = $folder . '/' . $imageName;
 
-            // upload
             $uploaded = Cloudinary::upload(
                 $request->file('file_avatar')->getRealPath(),
                 [
-                    'folder'     => $folder . '/',
-                    'public_id'  => $imageName,
-                    'overwrite'  => true,
+                    'folder'        => $folder . '/',
+                    'public_id'     => $imageName,
+                    'overwrite'     => true,
                     'resource_type' => 'image',
                 ]
             );
 
-            // simpan URL + path (public_id)
             $user->file_avatar      = $uploaded->getSecurePath(); // URL https
-            $user->file_avatar_path = $publicIdFull;              // untuk destroy
+            $user->file_avatar_path = $publicIdFull;              // public_id untuk destroy
         }
 
         $user->save();
@@ -416,13 +430,16 @@ class UserController extends Controller
             'success' => true,
             'message' => 'Profil berhasil diperbarui',
             'data'    => [
-                'id'            => $user->id,
-                'name'          => $user->name,
-                'email'         => $user->email,
-                'telepon'       => $user->telepon,
-                'gender'        => $user->gender,
-                'address'       => $user->address,
-                'file_avatar'   => $user->file_avatar,
+                'id'               => $user->id,
+                'name'             => $user->name,
+                'email'            => $user->email,
+                'telepon'          => $user->telepon,
+                'gender'           => $user->gender,
+                'address'          => $user->address,
+                'city'             => $user->city,
+                'province'         => $user->province,
+                'postal_code'      => $user->postal_code,
+                'file_avatar'      => $user->file_avatar,
                 'file_avatar_path' => $user->file_avatar_path,
             ]
         ], 200);
@@ -577,6 +594,9 @@ class UserController extends Controller
                         'telepon'            => $user->telepon,
                         'gender'             => $user->gender,
                         'address'            => $user->address,
+                        'province'            => $user->province,
+                        'city'            => $user->city,
+                        'postal_code'            => $user->postal_code,
                         'file_avatar'        => $user->file_avatar,
                         'file_avatar_path'   => $user->file_avatar_path,
 

@@ -172,18 +172,7 @@ class NotarisActivityController extends Controller
             ], 422);
         }
 
-        // Ambil deed & cek kebutuhan jumlah klien
         $deed   = Deed::with('requirements')->find($data['deed_id']);
-        $needed = (int) $deed->total_client;
-
-        if (count($data['client_ids']) !== $needed) {
-            return response()->json([
-                'success' => false,
-                'message' => "Akta ini memerlukan {$needed} klien.",
-                'data'    => null,
-            ], 422);
-        }
-
         // Susun kembali sesuai urutan FE (hanya id valid)
         $orderedClientIds = [];
         foreach ($data['client_ids'] as $cid) {
@@ -338,15 +327,6 @@ class NotarisActivityController extends Controller
                         ->all();
                 }
 
-                $needed = (int) $deedNew->total_client;
-                if (count($orderedClientIds) !== $needed) {
-                    abort(response()->json([
-                        'success' => false,
-                        'message' => "Akta ini memerlukan {$needed} klien.",
-                        'data'    => null,
-                    ], 422));
-                }
-
                 $activity->deed_id = $deedNew->id;
                 $activity->save();
             }
@@ -372,15 +352,7 @@ class NotarisActivityController extends Controller
 
                 // Validasi jumlah sesuai deed aktif saat ini
                 $deed = $activity->deed()->first();
-                $needed = (int) $deed->total_client;
-                if (count($orderedClientIds) !== $needed) {
-                    abort(response()->json([
-                        'success' => false,
-                        'message' => "Akta ini memerlukan {$needed} klien.",
-                        'data'    => null,
-                    ], 422));
-                }
-
+                
                 // Reset pivot
                 ClientActivity::where('activity_id', $activity->id)->delete();
 
@@ -612,6 +584,35 @@ class NotarisActivityController extends Controller
             'success' => true,
             'message' => 'Daftar klien terverifikasi berhasil diambil',
             'data'    => $options,
+        ], 200);
+    }
+
+
+    public function markDone($id)
+    {
+
+        $activity = Activity::find($id);
+        if (!$activity) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Aktivitas tidak ditemukan',
+                'data'    => null
+            ], 404);
+        }
+
+        $activity->track()->update([
+            'status_docs'  => 'done',
+            'status_draft' => 'todo',
+        ]);
+
+        // ambil ulang data track yang fresh
+        $activity->load('track');
+
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Status Doc aktivitas berhasil ditandai selesai cui',
+            'data'    => $activity->track
         ], 200);
     }
 }
