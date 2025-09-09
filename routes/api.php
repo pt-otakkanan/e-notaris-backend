@@ -97,7 +97,7 @@ Route::prefix('admin')->middleware('auth:sanctum')->group(function () {
         Route::post('/update/{id}',    [DeedController::class, 'update']);
         Route::delete('/{id}', [DeedController::class, 'destroy']);
     });
-    Route::prefix('requirement')->middleware('ability:admin')->group(function () {
+    Route::prefix('requirement')->middleware('ability:admin,notaris')->group(function () {
         Route::get('/',        [RequirementController::class, 'index']);
         Route::get('/{id}',    [RequirementController::class, 'show']);
         Route::post('/',       [RequirementController::class, 'store']);
@@ -115,6 +115,8 @@ Route::prefix('notaris')->middleware('auth:sanctum')->group(function () {
     Route::prefix('activity')->middleware('ability:notaris')->group(function () {
         Route::get('/user/approved', [NotarisActivityController::class, 'getByUserApproved']);
         Route::get('/user/client',   [NotarisActivityController::class, 'getUsers']);
+        Route::get('/user/remove/{userid}/{activityid}',   [NotarisActivityController::class, 'removeUser']);
+        Route::get('/user/add/{userid}/{activityid}',   [NotarisActivityController::class, 'addUser']);
         Route::get('/',              [NotarisActivityController::class, 'index']);
 
         // mark activity
