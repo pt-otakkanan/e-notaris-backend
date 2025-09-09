@@ -2,8 +2,10 @@
 
 namespace Database\Seeders;
 
-use Illuminate\Database\Seeder;
 use App\Models\User;
+use Illuminate\Database\Seeder;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
 use App\Models\Role; // pastikan model Role ada
 
 class DatabaseSeeder extends Seeder
@@ -24,17 +26,61 @@ class DatabaseSeeder extends Seeder
             Role::updateOrCreate(['id' => $role['id']], $role);
         }
 
-        // 2. Buat user admin (khusus)
-        User::factory()->create([
-            'name' => 'Admin User',
-            'email' => 'admin@example.com',
-            'password' => bcrypt('rahasia123'),
-            'role_id' => 1, // admin
-        ]);
-
-        // 3. Buat 10 user acak dengan role_id 2 atau 3
-        User::factory(10)->create([
-            'role_id' => fake()->randomElement([2, 3]),
+        DB::table('users')->insert([
+            [
+                'role_id'            => 3,
+                'name'               => 'Adam Aditya',
+                'email'              => 'adam@gmail.com',
+                'password'           => Hash::make('rahasia123'),
+                'status_verification' => 'approved',
+                'verify_key'         => 'QK4R08F',
+                'email_verified_at'  => '2025-09-08 14:36:15',
+            ],
+            [
+                'role_id'            => 2,
+                'name'               => 'DEVANO ALIF RAMADHAN',
+                'email'              => 'devanorama123@gmail.com',
+                'password'           => Hash::make('rahasia123'),
+                'status_verification' => 'approved',
+                'verify_key'         => '7RZWDO0',
+                'email_verified_at'  => '2025-09-08 14:51:53',
+            ],
+            [
+                'role_id'            => 2,
+                'name'               => 'Iwang',
+                'email'              => 'iwang@gmail.com',
+                'password'           => Hash::make('rahasia123'),
+                'status_verification' => 'approved',
+                'verify_key'         => 'TOCTPNP',
+                'email_verified_at'  => '2025-09-08 00:00:00',
+            ],
+            [
+                'role_id'            => 2,
+                'name'               => 'Yasmin Zakiyah Firmasyah',
+                'email'              => 'yasmin@gmail.com',
+                'password'           => Hash::make('rahasia123'),
+                'status_verification' => 'approved',
+                'verify_key'         => 'A9QZJ9O',
+                'email_verified_at'  => '2025-09-08 00:00:00',
+            ],
+            [
+                'role_id'            => 2,
+                'name'               => 'Dhika',
+                'email'              => 'dhika@gmail.com',
+                'password'           => Hash::make('rahasia123'),
+                'status_verification' => 'pending',
+                'verify_key'         => 'IDEZVZ5',
+                'email_verified_at'  => '2025-09-08 00:00:00',
+            ],
+            [
+                'role_id'            => 1,
+                'name'               => 'admin',
+                'email'              => 'admin@gmail.com',
+                'password'           => Hash::make('rahasia123'),
+                'status_verification' => 'pending',
+                'verify_key'         => '5HSAKDU',
+                'email_verified_at'  => '2025-09-08 15:28:18',
+            ],
         ]);
     }
 }
