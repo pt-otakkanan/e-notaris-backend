@@ -16,6 +16,151 @@ use CloudinaryLabs\CloudinaryLaravel\Facades\Cloudinary;
 
 class NotarisActivityController extends Controller
 {
+    public function addUser(Request $request, $userid, $activityid)
+    {
+        $user = $request->user();
+
+        // Pastikan activity milik notaris yang sedang login
+        $activity = Activity::where('id', $activityid)
+            ->where('user_notaris_id', $user->id)
+            ->first();
+
+        if (!$activity) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Aktivitas tidak ditemukan',
+                'data'    => null
+            ], 404);
+        }
+
+        // Pastikan user yang ditambahkan adalah klien (role_id = 2) dan sudah terverifikasi
+        $client = User::where('id', $userid)
+            ->where('role_id', 2)
+            ->where('status_verification', 'approved')
+            ->first();
+
+        if (!$client) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Klien tidak valid atau belum terverifikasi',
+                'data'    => null
+            ], 422);
+        }
+
+        // Cek apakah user sudah ada di activity ini
+        $exists = ClientActivity::where('activity_id', $activityid)
+            ->where('user_id', $userid)
+            ->exists();
+
+        if ($exists) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Klien sudah terdaftar pada aktivitas ini',
+                'data'    => null
+            ], 409);
+        }
+
+        // Tambahkan ke client_activity dengan order terakhir + 1
+        $lastOrder = ClientActivity::where('activity_id', $activityid)->max('order') ?? 0;
+        $now = now();
+
+        DB::transaction(function () use ($activity, $userid, $lastOrder, $now) {
+            // 1. Tambah ke client_activity
+            ClientActivity::create([
+                'user_id'         => $userid,
+                'activity_id'     => $activity->id,
+                'status_approval' => 'pending',
+                'order'           => $lastOrder + 1,
+                'created_at'      => $now,
+                'updated_at'      => $now,
+            ]);
+
+            // 2. Generate DocumentRequirement untuk klien ini sesuai deed
+            $deed = $activity->deed()->with('requirements')->first();
+            $docRows = [];
+            foreach ($deed->requirements as $req) {
+                $docRows[] = [
+                    'activity_notaris_id' => $activity->id,
+                    'user_id'             => $userid,
+                    'requirement_id'      => $req->id,
+                    'requirement_name'    => $req->name,
+                    'is_file_snapshot'    => (bool) $req->is_file,
+                    'value'               => null,
+                    'file'                => null,
+                    'file_path'           => null,
+                    'status_approval'     => 'pending',
+                    'created_at'          => $now,
+                    'updated_at'          => $now,
+                ];
+            }
+            if (!empty($docRows)) {
+                DocumentRequirement::insert($docRows);
+            }
+        });
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Klien berhasil ditambahkan ke aktivitas'
+        ], 201);
+    }
+
+    public function removeUser(Request $request, $userid, $activityid)
+    {
+        $user = $request->user();
+
+        // Pastikan activity milik notaris yang sedang login
+        $activity = Activity::where('id', $activityid)
+            ->where('user_notaris_id', $user->id)
+            ->first();
+
+        if (!$activity) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Aktivitas tidak ditemukan',
+                'data'    => null
+            ], 404);
+        }
+
+        // Cek apakah user adalah klien pada activity ini
+        $clientActivity = ClientActivity::where('activity_id', $activityid)
+            ->where('user_id', $userid)
+            ->first();
+
+        if (!$clientActivity) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Klien tidak ditemukan pada aktivitas ini',
+                'data'    => null
+            ], 404);
+        }
+
+        // Proteksi: tidak boleh hapus jika sudah approved
+        if ($clientActivity->status_approval === 'approved') {
+            return response()->json([
+                'success' => false,
+                'message' => 'Klien yang sudah menyetujui tidak dapat dihapus.',
+                'data'    => null
+            ], 409);
+        }
+
+        DB::transaction(function () use ($activityid, $userid) {
+            // Hapus dokumen persyaratan terkait user ini pada activity ini
+            DocumentRequirement::where('activity_notaris_id', $activityid)
+                ->where('user_id', $userid)
+                ->delete();
+
+            // Hapus client_activity
+            ClientActivity::where('activity_id', $activityid)
+                ->where('user_id', $userid)
+                ->delete();
+        });
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Klien berhasil dihapus dari aktivitas',
+            'data'    => null
+        ], 200);
+    }
     /**
      * GET /notaris/activity
      */
@@ -352,7 +497,7 @@ class NotarisActivityController extends Controller
 
                 // Validasi jumlah sesuai deed aktif saat ini
                 $deed = $activity->deed()->first();
-                
+
                 // Reset pivot
                 ClientActivity::where('activity_id', $activity->id)->delete();
 
