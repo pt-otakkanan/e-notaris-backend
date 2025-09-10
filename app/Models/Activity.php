@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\Requirement;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 
@@ -39,12 +40,17 @@ class Activity extends Model
         return $this->belongsTo(Track::class, 'track_id');
     }
 
+    public function requirements()
+    {
+        return $this->hasMany(Requirement::class, 'activity_id');
+    }
+
     public function documentRequirements()
     {
         return $this->hasMany(DocumentRequirement::class, 'activity_notaris_id');
     }
 
-    public function draftDeeds()
+    public function draft()
     {
         return $this->hasMany(DraftDeed::class);
     }

@@ -22,7 +22,6 @@ class DraftDeed extends Model
     protected $casts = [
         'reading_schedule' => 'datetime',
         'status_approval' => 'string',
-        'custom_value_template' => 'array', // Jika ingin menyimpan sebagai JSON
     ];
 
     public function activity()

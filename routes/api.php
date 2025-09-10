@@ -5,6 +5,7 @@ use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\DeedController;
 use App\Http\Controllers\UserController;
+use App\Http\Controllers\DraftController;
 use App\Http\Controllers\TrackController;
 use App\Http\Controllers\ProductController;
 use App\Http\Controllers\ScheduleController;
@@ -96,6 +97,14 @@ Route::prefix('admin')->middleware('auth:sanctum')->group(function () {
         Route::post('/',       [DeedController::class, 'store']);
         Route::post('/update/{id}',    [DeedController::class, 'update']);
         Route::delete('/{id}', [DeedController::class, 'destroy']);
+    });
+    Route::prefix('draft')->middleware('ability:notaris,admin')->group(function () {
+        Route::get('/',        [DraftController::class, 'index']);
+        Route::get('/{id}',    [DraftController::class, 'show']);
+        Route::post('/',       [DraftController::class, 'store']);
+        Route::post('/update/{id}',    [DraftController::class, 'update']);
+        Route::delete('/{id}', [DraftController::class, 'destroy']);
+        Route::post('/{id}/render-pdf', [DraftController::class, 'renderPdf']);
     });
     Route::prefix('requirement')->middleware('ability:admin,notaris')->group(function () {
         Route::get('/',        [RequirementController::class, 'index']);

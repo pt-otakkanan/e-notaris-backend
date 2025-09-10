@@ -9,22 +9,17 @@ use Illuminate\Support\Facades\Validator;
 
 class DeedController extends Controller
 {
-    /**
-     * GET /deeds
-     * Query opsional: search (by name/description), per_page
-     */
+    // GET /deeds
     public function index(Request $request)
     {
-        $user = $request->user();
-        $q        = $request->query('search');
-        $perPage  = (int)($request->query('per_page', 10));
-        $perPage  = $perPage > 0 ? $perPage : 10;
+        $user    = $request->user();
+        $q       = $request->query('search');
+        $perPage = max(1, (int)$request->query('per_page', 10));
 
-        if ($user->role_id === 1) {
-            $query = Deed::with('requirements');
-        } else {
-            $query = Deed::with('requirements')->where('user_notaris_id', $user->id);
-        }
+        // ❌ HAPUS with('requirements')
+        $query = $user->role_id === 1
+            ? Deed::query()
+            : Deed::where('user_notaris_id', $user->id);
 
         if ($q) {
             $query->where(function ($sub) use ($q) {
@@ -48,12 +43,11 @@ class DeedController extends Controller
         ], 200);
     }
 
-    /**
-     * GET /deeds/{id}
-     */
+    // GET /deeds/{id}
     public function show($id)
     {
-        $deed = Deed::with(['requirements', 'activities', 'mainValueDeeds'])->find($id);
+        // ❌ HAPUS 'requirements' dari eager load
+        $deed = Deed::with(['activities', 'mainValueDeeds'])->find($id);
 
         if (!$deed) {
             return response()->json([
@@ -70,23 +64,12 @@ class DeedController extends Controller
         ], 200);
     }
 
-    /**
-     * POST /deeds
-     * Body: name, description, total_client (int >=1)
-     */
+    // POST /deeds
     public function store(Request $request)
     {
         $validasi = Validator::make($request->all(), [
-            'name'         => 'required|string|max:255|unique:deeds,name',
-            'description'  => 'required|string|max:255',
-        ], [
-            'name.required'         => 'Nama akta wajib diisi.',
-            'name.string'           => 'Nama akta harus berupa teks.',
-            'name.max'              => 'Nama akta maksimal 255 karakter.',
-            'name.unique'           => 'Nama akta sudah digunakan.',
-            'description.required'  => 'Deskripsi wajib diisi.',
-            'description.string'    => 'Deskripsi harus berupa teks.',
-            'description.max'       => 'Deskripsi maksimal 255 karakter.',
+            'name'        => 'required|string|max:255|unique:deeds,name',
+            'description' => 'required|string|max:255',
         ]);
 
         if ($validasi->fails()) {
@@ -97,15 +80,10 @@ class DeedController extends Controller
             ], 422);
         }
 
-
-        $user = $request->user();
-
-        // ambil hasil validasi, lalu tambahkan kolom ekstra
         $data = $validasi->validated();
-        $data['user_notaris_id'] = $user->id;
+        $data['user_notaris_id'] = $request->user()->id;
 
         $deed = Deed::create($data);
-
 
         return response()->json([
             'success' => true,
@@ -114,10 +92,7 @@ class DeedController extends Controller
         ], 201);
     }
 
-    /**
-     * PUT /deeds/{id}
-     * Body: name, description, total_client
-     */
+    // POST /deeds/update/{id}
     public function update(Request $request, $id)
     {
         $deed = Deed::find($id);
@@ -130,16 +105,8 @@ class DeedController extends Controller
         }
 
         $validasi = Validator::make($request->all(), [
-            'name'         => 'required|string|max:255|unique:deeds,name,' . $deed->id,
-            'description'  => 'required|string|max:255',
-        ], [
-            'name.required'         => 'Nama akta wajib diisi.',
-            'name.string'           => 'Nama akta harus berupa teks.',
-            'name.max'              => 'Nama akta maksimal 255 karakter.',
-            'name.unique'           => 'Nama akta sudah digunakan.',
-            'description.required'  => 'Deskripsi wajib diisi.',
-            'description.string'    => 'Deskripsi harus berupa teks.',
-            'description.max'       => 'Deskripsi maksimal 255 karakter.',
+            'name'        => 'required|string|max:255|unique:deeds,name,' . $deed->id,
+            'description' => 'required|string|max:255',
         ]);
 
         if ($validasi->fails()) {
@@ -151,11 +118,8 @@ class DeedController extends Controller
         }
 
         $data = $validasi->validated();
-
-        // misalnya mau update kolom tambahan (contoh: user_notaris_id)
         $data['user_notaris_id'] = $request->user()->id;
 
-        // langsung mass assignment
         $deed->update($data);
 
         return response()->json([
@@ -165,15 +129,11 @@ class DeedController extends Controller
         ], 200);
     }
 
-
-    /**
-     * DELETE /deeds/{id}
-     * (hapus juga relasi langsung)
-     */
+    // DELETE /deeds/{id}
     public function destroy($id)
     {
-        $deed = Deed::with(['requirements', 'activities', 'mainValueDeeds'])->find($id);
-
+        // ❌ HAPUS eager 'requirements'
+        $deed = Deed::with(['activities', 'mainValueDeeds'])->find($id);
         if (!$deed) {
             return response()->json([
                 'success' => false,
@@ -184,7 +144,7 @@ class DeedController extends Controller
 
         try {
             DB::transaction(function () use ($deed) {
-                $deed->requirements()->delete();
+                // ❌ JANGAN $deed->requirements()->delete();
                 $deed->mainValueDeeds()->delete();
                 $deed->activities()->delete();
                 $deed->delete();

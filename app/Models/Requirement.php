@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Models\Deed;
+use App\Models\Activity;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 
@@ -11,7 +12,7 @@ class Requirement extends Model
     use HasFactory;
 
     protected $fillable = [
-        'deed_id',
+        'activity_id',
         'name',
         'is_file'
     ];
@@ -20,9 +21,9 @@ class Requirement extends Model
         'is_file' => 'boolean',
     ];
 
-    public function deed()
+    public function activity()
     {
-        return $this->belongsTo(Deed::class);
+        return $this->belongsTo(Activity::class);
     }
     public function documentRequirements()
     {
