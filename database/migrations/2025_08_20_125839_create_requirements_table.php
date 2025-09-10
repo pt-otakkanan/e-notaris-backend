@@ -10,12 +10,12 @@ return new class extends Migration
     {
         Schema::create('requirements', function (Blueprint $table) {
             $table->id();
-            $table->unsignedBigInteger('deed_id');
+            $table->unsignedBigInteger('activity_id');
             $table->string('name', 255)->nullable(false);
             $table->boolean('is_file')->nullable(false)->default(false);
             $table->timestamps();
 
-            $table->foreign('deed_id')->references('id')->on('deeds')->onDelete('cascade');
+            $table->foreign('activity_id')->references('id')->on('activity')->onDelete('cascade');
         });
     }
 

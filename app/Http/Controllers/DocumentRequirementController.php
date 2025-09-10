@@ -403,13 +403,13 @@ class DocumentRequirementController extends Controller
         // Reset status setiap ada perubahan
         $doc->status_approval = 'pending';
 
-        if (is_null($doc->value) && empty($doc->file)) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Minimal value atau file harus ada.',
-                'data'    => null
-            ], 422);
-        }
+        // if (is_null($doc->value) && empty($doc->file)) {
+        //     return response()->json([
+        //         'success' => false,
+        //         'message' => 'Minimal value atau file harus ada.',
+        //         'data'    => null
+        //     ], 422);
+        // }
 
         $doc->save();
 
