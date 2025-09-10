@@ -181,6 +181,7 @@ class ClientActivityController extends Controller
                 } elseif ($allApproved) {
                     $track->status_respond = 'done';
                     $track->status_docs = 'todo';
+                    $track->status_draft = 'todo';
                 }
                 $track->save();
             }

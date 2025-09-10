@@ -2,8 +2,9 @@
 
 namespace App\Models;
 
-use Illuminate\Database\Eloquent\Factories\HasFactory;
+use App\Models\Identity;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 
 class ClientActivity extends Model
 {
@@ -22,6 +23,10 @@ class ClientActivity extends Model
     public function user()
     {
         return $this->belongsTo(User::class);
+    }
+    public function identity()
+    {
+        return $this->belongsTo(Identity::class);
     }
 
     // Relasi ke Activity
