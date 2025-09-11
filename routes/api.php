@@ -9,6 +9,7 @@ use App\Http\Controllers\DraftController;
 use App\Http\Controllers\TrackController;
 use App\Http\Controllers\ProductController;
 use App\Http\Controllers\ScheduleController;
+use App\Http\Controllers\TemplateController;
 use App\Http\Controllers\RequirementController;
 use App\Http\Controllers\VerificationController;
 use App\Http\Controllers\MainValueDeedController;
@@ -91,6 +92,16 @@ Route::prefix('admin')->middleware('auth:sanctum')->group(function () {
         Route::get('/users', [VerificationController::class, 'getAllUsers']);
         Route::get('/users/{id}', [UserController::class, 'getDetailUser']);
     });
+
+    Route::prefix('templates')->group(function () {
+        Route::get('/',                 [TemplateController::class, 'index']);
+        Route::get('/{id}',             [TemplateController::class, 'show']);
+        Route::post('/',                [TemplateController::class, 'store']);
+        Route::post('/update/{id}',     [TemplateController::class, 'update']); // konsisten dengan pattern-mu
+        Route::delete('/{id}',          [TemplateController::class, 'destroy']);
+        Route::get('/all/template',      [TemplateController::class, 'all']);
+    });
+
     Route::prefix('deed')->middleware('ability:notaris,admin')->group(function () {
         Route::get('/',        [DeedController::class, 'index']);
         Route::get('/{id}',    [DeedController::class, 'show']);
