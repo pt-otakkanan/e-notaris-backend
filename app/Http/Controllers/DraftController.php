@@ -313,43 +313,72 @@ class DraftController extends Controller
             return response()->json(['success' => false, 'message' => 'Tidak berhak'], 403);
         }
 
-        // Ambil HTML dari request atau pakai yang tersimpan
-        $html = $request->input('html', $draft->custom_value_template ?? '');
-        if (!trim($html)) {
+        // ⬇️ AMBIL HTML FINAL dari FE (bukan template mentah)
+        // fallback ke kolom lama jika masih ada (opsional)
+        $htmlRendered = (string) $request->input('html_rendered', '');
+        if (!trim($htmlRendered)) {
+            $htmlRendered = (string) ($draft->custom_value_template ?? '');
+        }
+        if (!trim($htmlRendered)) {
             return response()->json(['success' => false, 'message' => 'HTML kosong'], 422);
         }
 
-        // Render PDF
-        $pdf = Pdf::loadHTML($html)->setPaper('a4', 'portrait');
+        // (opsional) tolak jika masih ada token {xxx}
+        if (preg_match('/\{[a-z0-9_]+\}/i', $htmlRendered)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Masih ada token yang belum tergantikan di HTML. Kirim HTML final dari FE.'
+            ], 422);
+        }
 
-        // Simpan sementara ke storage/tmp
+        // ⬇️ CSS dasar agar mirip preview Quill + jaga spasi/tab
+        $css = <<<CSS
+      @page { size: A4; margin: 80px; }
+      body { font-family: "Times New Roman", serif; font-size: 12pt; line-height: 1.6; color:#000; }
+      h1,h2,h3 { margin: 0 0 10px; }
+      p { margin: 0 0 8px; }
+      ul, ol { margin: 0 0 12px 22px; padding: 0; }
+      .ql-align-center { text-align: center; }
+      .ql-align-right { text-align: right; }
+      .ql-align-justify { text-align: justify; }
+      .preserve-space { white-space: pre-wrap; tab-size: 4; }
+    CSS;
+
+        $fullHtml = <<<HTML
+      <!doctype html>
+      <html>
+        <head><meta charset="utf-8"><style>{$css}</style></head>
+        <body class="preserve-space">{$htmlRendered}</body>
+      </html>
+    HTML;
+
+        // ⬇️ Render PDF (aktifkan remote kalau pakai gambar/url)
+        $pdf = Pdf::loadHTML($fullHtml)
+            ->setPaper('a4', 'portrait')
+            ->setOptions(['isRemoteEnabled' => true]);
+
+        // Simpan sementara
         $tmpDir = storage_path('app/tmp');
         if (!is_dir($tmpDir)) @mkdir($tmpDir, 0775, true);
         $tmpFile = $tmpDir . '/draft_' . $draft->id . '_' . time() . '.pdf';
         file_put_contents($tmpFile, $pdf->output());
 
-        // Upload ke Cloudinary
+        // Upload ke Cloudinary (tetap seperti punyamu)
         try {
-            // hapus file lama
             if (!empty($draft->file_path)) {
                 Cloudinary::destroy($draft->file_path);
             }
-
             $folder   = "enotaris/activities/{$draft->activity_id}/drafts";
             $filename = 'draft_pdf_' . now()->format('YmdHis');
             $publicId = "{$folder}/{$filename}";
 
-            $upload = Cloudinary::upload(
-                $tmpFile,
-                [
-                    'folder'        => $folder . '/',
-                    'public_id'     => $filename,
-                    'overwrite'     => true,
-                    'resource_type' => 'auto',
-                ]
-            );
+            $upload = Cloudinary::upload($tmpFile, [
+                'folder'        => $folder . '/',
+                'public_id'     => $filename,
+                'overwrite'     => true,
+                'resource_type' => 'auto',
+            ]);
 
-            // update kolom file
             $draft->file      = $upload->getSecurePath();
             $draft->file_path = $publicId;
             $draft->save();
