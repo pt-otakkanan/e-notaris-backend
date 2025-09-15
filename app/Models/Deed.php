@@ -18,10 +18,10 @@ class Deed extends Model
 
 
     /** Relasi */
-    public function requirements()
-    {
-        return $this->hasMany(Requirement::class, 'deed_id');
-    }
+    // public function requirements()
+    // {
+    //     return $this->hasMany(Requirement::class, 'deed_id');
+    // }
 
     public function activities()
     {
