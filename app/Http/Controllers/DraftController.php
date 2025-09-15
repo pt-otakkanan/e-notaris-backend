@@ -6,12 +6,13 @@ use App\Models\Activity;
 use App\Models\DraftDeed;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Facades\Log;
 // Sesuaikan namespace Cloudinary yg kamu pakai:
-use CloudinaryLabs\CloudinaryLaravel\Facades\Cloudinary;
-// App\Http\Controllers\DraftController.php
-use Barryvdh\DomPDF\Facade\Pdf; // pastikan facade aktif
 use Illuminate\Support\Facades\Storage;
+// App\Http\Controllers\DraftController.php
+use Illuminate\Support\Facades\Validator;
+use Barryvdh\DomPDF\Facade\Pdf; // pastikan facade aktif
+use CloudinaryLabs\CloudinaryLaravel\Facades\Cloudinary;
 
 class DraftController extends Controller
 {
@@ -303,98 +304,241 @@ class DraftController extends Controller
 
     public function renderPdf(Request $request, $id)
     {
-        $draft = DraftDeed::with('activity')->find($id);
-        if (!$draft) {
-            return response()->json(['success' => false, 'message' => 'Draft tidak ditemukan'], 404);
-        }
-
-        $user = $request->user();
-        if ($user->role_id !== 1 && $draft->activity?->user_notaris_id !== $user->id) {
-            return response()->json(['success' => false, 'message' => 'Tidak berhak'], 403);
-        }
-
-        // ⬇️ AMBIL HTML FINAL dari FE (bukan template mentah)
-        // fallback ke kolom lama jika masih ada (opsional)
-        $htmlRendered = (string) $request->input('html_rendered', '');
-        if (!trim($htmlRendered)) {
-            $htmlRendered = (string) ($draft->custom_value_template ?? '');
-        }
-        if (!trim($htmlRendered)) {
-            return response()->json(['success' => false, 'message' => 'HTML kosong'], 422);
-        }
-
-        // (opsional) tolak jika masih ada token {xxx}
-        if (preg_match('/\{[a-z0-9_]+\}/i', $htmlRendered)) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Masih ada token yang belum tergantikan di HTML. Kirim HTML final dari FE.'
-            ], 422);
-        }
-
-        // ⬇️ CSS dasar agar mirip preview Quill + jaga spasi/tab
-        $css = <<<CSS
-      @page { size: A4; margin: 80px; }
-      body { font-family: "Times New Roman", serif; font-size: 12pt; line-height: 1.6; color:#000; }
-      h1,h2,h3 { margin: 0 0 10px; }
-      p { margin: 0 0 8px; }
-      ul, ol { margin: 0 0 12px 22px; padding: 0; }
-      .ql-align-center { text-align: center; }
-      .ql-align-right { text-align: right; }
-      .ql-align-justify { text-align: justify; }
-      .preserve-space { white-space: pre-wrap; tab-size: 4; }
-    CSS;
-
-        $fullHtml = <<<HTML
-      <!doctype html>
-      <html>
-        <head><meta charset="utf-8"><style>{$css}</style></head>
-        <body class="preserve-space">{$htmlRendered}</body>
-      </html>
-    HTML;
-
-        // ⬇️ Render PDF (aktifkan remote kalau pakai gambar/url)
-        $pdf = Pdf::loadHTML($fullHtml)
-            ->setPaper('a4', 'portrait')
-            ->setOptions(['isRemoteEnabled' => true]);
-
-        // Simpan sementara
-        $tmpDir = storage_path('app/tmp');
-        if (!is_dir($tmpDir)) @mkdir($tmpDir, 0775, true);
-        $tmpFile = $tmpDir . '/draft_' . $draft->id . '_' . time() . '.pdf';
-        file_put_contents($tmpFile, $pdf->output());
-
-        // Upload ke Cloudinary (tetap seperti punyamu)
         try {
-            if (!empty($draft->file_path)) {
-                Cloudinary::destroy($draft->file_path);
+            // 1) Ambil draft + otorisasi
+            $draft = DraftDeed::with('activity')->find($id);
+            if (!$draft) {
+                return response()->json(['success' => false, 'message' => 'Draft tidak ditemukan'], 404);
             }
-            $folder   = "enotaris/activities/{$draft->activity_id}/drafts";
-            $filename = 'draft_pdf_' . now()->format('YmdHis');
-            $publicId = "{$folder}/{$filename}";
 
-            $upload = Cloudinary::upload($tmpFile, [
-                'folder'        => $folder . '/',
-                'public_id'     => $filename,
-                'overwrite'     => true,
-                'resource_type' => 'auto',
+            $user = $request->user();
+            if ($user->role_id !== 1 && $draft->activity?->user_notaris_id !== $user->id) {
+                return response()->json(['success' => false, 'message' => 'Tidak berhak'], 403);
+            }
+
+            // 2) Ambil HTML FINAL dari request (prioritas: html_rendered → html → DB)
+            $htmlRendered = (string) $request->input(
+                'html_rendered',
+                (string) $request->input('html', '')
+            );
+            if (!trim($htmlRendered)) {
+                $htmlRendered = (string) ($draft->custom_value_template ?? '');
+            }
+            if (!trim($htmlRendered)) {
+                return response()->json(['success' => false, 'message' => 'HTML kosong'], 422);
+            }
+
+            // Opsional: tolak jika masih ada token yang belum terganti
+            if (preg_match('/\{\{[^}]+\}\}/', $htmlRendered) || preg_match('/\{[a-z0-9_]+\}/i', $htmlRendered)) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Masih ada token yang belum tergantikan di HTML. Kirim HTML final dari FE.'
+                ], 422);
+            }
+
+            // 3) PDF options (default + validasi)
+            $pdfOptions = (array) $request->input('pdf_options', []);
+            $defaults = [
+                'page_size'            => 'A4',
+                'orientation'          => 'portrait',
+                'margins_mm'           => ['top' => 20, 'right' => 20, 'bottom' => 20, 'left' => 20],
+                'font_family'          => 'times',  // times|arial|helvetica|calibri|georgia|garamond|cambria
+                'font_size_pt'         => 12,
+                'show_page_numbers'    => false,
+                'page_number_h_align'  => 'right',  // left|center|right
+                'page_number_v_align'  => 'bottom', // top|bottom
+            ];
+            $o = array_merge($defaults, $pdfOptions);
+
+            $allowedSizes  = ['A3', 'A4', 'A5', 'Letter', 'Legal', 'Folio'];
+            $allowedOrient = ['portrait', 'landscape'];
+            $allowedFonts  = ['times', 'arial', 'helvetica', 'calibri', 'georgia', 'garamond', 'cambria'];
+
+            if (!in_array($o['page_size'], $allowedSizes, true))    $o['page_size'] = 'A4';
+            if (!in_array($o['orientation'], $allowedOrient, true)) $o['orientation'] = 'portrait';
+            if (!in_array($o['font_family'], $allowedFonts, true))  $o['font_family'] = 'times';
+
+            foreach (['top', 'right', 'bottom', 'left'] as $side) {
+                if (!isset($o['margins_mm'][$side]) || !is_numeric($o['margins_mm'][$side])) {
+                    $o['margins_mm'][$side] = 20;
+                }
+                $o['margins_mm'][$side] = max(0, min(50, (int) $o['margins_mm'][$side]));
+            }
+            $fs = (int) $o['font_size_pt'];
+            if ($fs < 8 || $fs > 24) $fs = 12;
+
+            // 4) Map font & konversi margin
+            $fontMap = [
+                'times'     => '"Times New Roman", serif',
+                'arial'     => 'Arial, sans-serif',
+                'helvetica' => 'Helvetica, Arial, sans-serif',
+                'calibri'   => 'Calibri, sans-serif',
+                'georgia'   => 'Georgia, serif',
+                'garamond'  => 'Garamond, serif',
+                'cambria'   => 'Cambria, serif',
+            ];
+            $fontStack = $fontMap[$o['font_family']] ?? $fontMap['times'];
+
+            // 1 mm ≈ 2.83465 pt
+            $MM_TO_PT = 2.83465;
+            $mt = round($o['margins_mm']['top']    * $MM_TO_PT) . 'pt';
+            $mr = round($o['margins_mm']['right']  * $MM_TO_PT) . 'pt';
+            $mb = round($o['margins_mm']['bottom'] * $MM_TO_PT) . 'pt';
+            $ml = round($o['margins_mm']['left']   * $MM_TO_PT) . 'pt';
+
+            // 5) CSS minimal (tanpa header/footer/custom CSS lain)
+            $css = <<<CSS
+@page { size: {$o['page_size']} {$o['orientation']}; margin: {$mt} {$mr} {$mb} {$ml}; }
+body { font-family: {$fontStack}; font-size: {$fs}pt; line-height: 1.6; color:#000; margin:0; padding:0; }
+h1,h2,h3,h4,h5,h6{ margin:0 0 10px; font-weight:bold; }
+p{ margin:0 0 8px; text-align:justify; }
+ul,ol{ margin:0 0 12px 22px; padding:0; }
+li{ margin-bottom: 4px; }
+table{ width:100%; border-collapse:collapse; margin:12px 0; }
+td,th{ border:1px solid #000; padding:6px 8px; text-align:left; }
+th{ font-weight:bold; background:#f5f5f5; }
+.ql-align-center{text-align:center;} .ql-align-right{text-align:right;}
+.ql-align-left{text-align:left;} .ql-align-justify{text-align:justify;}
+.preserve-space{ white-space:pre-wrap; tab-size:4; }
+strong,b{ font-weight:bold; } em,i{ font-style:italic; } u{ text-decoration:underline; }
+CSS;
+
+            $fullHtml = <<<HTML
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><style>{$css}</style></head>
+<body class="preserve-space">{$htmlRendered}</body>
+</html>
+HTML;
+
+            // 6) Dompdf instance & render
+            $dompdf = Pdf::loadHTML($fullHtml)
+                ->setPaper(strtolower($o['page_size']), $o['orientation'])
+                ->setOptions([
+                    'isRemoteEnabled'     => true,
+                    'isHtml5ParserEnabled' => true,
+                    'isPhpEnabled'        => false,
+                ])
+                ->getDomPDF();
+
+            $dompdf->render();
+
+            // 7) Nomor halaman: angka saja, di tepi kertas (di luar margin)
+            $showNums = filter_var($o['show_page_numbers'] ?? false, FILTER_VALIDATE_BOOLEAN);
+            if ($showNums) {
+                $canvas = $dompdf->get_canvas();
+                $w = $canvas->get_width();
+                $h = $canvas->get_height();
+
+                $metrics = $dompdf->getFontMetrics();
+                $font = $metrics->get_font('helvetica', 'normal'); // aman & tersedia
+                $size = $fs; // samakan dengan body; bisa juga pakai 9–11
+
+                $text = "{PAGE_NUM}";
+
+                // Lebar teks (kompatibel dengan berbagai versi dompdf)
+                $textWidth = method_exists($metrics, 'getTextWidth')
+                    ? $metrics->getTextWidth($text, $font, $size)
+                    : $metrics->get_text_width($text, $font, $size);
+
+                // 8 mm dari TEPI kertas
+                $padPt = 8 * $MM_TO_PT;
+
+                $hAlign = strtolower($o['page_number_h_align'] ?? 'right');   // left|center|right
+                $vAlign = strtolower($o['page_number_v_align'] ?? 'bottom');  // top|bottom
+
+                // Hitung X
+                if ($hAlign === 'left') {
+                    $x = 0 + $padPt;
+                } elseif ($hAlign === 'center') {
+                    $x = $w / 2;
+                } else { // right
+                    $x = $w - $textWidth - $padPt;
+                }
+
+                // Hitung Y (ingat baseline text)
+                if ($vAlign === 'top') {
+                    $y = 0 + $padPt + $size; // sedikit turun dari tepi atas
+                } else { // bottom
+                    $y = $h - $padPt;       // di atas tepi bawah
+                }
+
+                $canvas->page_text($x, $y, $text, $font, $size, [0, 0, 0]);
+            }
+
+            // 8) Simpan sementara
+            $tmpDir = storage_path('app/tmp');
+            if (!is_dir($tmpDir)) @mkdir($tmpDir, 0775, true);
+            $tmpFile = $tmpDir . '/draft_' . $draft->id . '_' . time() . '.pdf';
+            file_put_contents($tmpFile, $dompdf->output());
+
+            // 9) Upload ke Cloudinary (dengan retry sederhana)
+            try {
+                if (!empty($draft->file_path)) {
+                    try {
+                        Cloudinary::destroy($draft->file_path);
+                    } catch (\Exception $e) {
+                        Log::warning('Cloudinary destroy failed: ' . $e->getMessage());
+                    }
+                }
+
+                $folder   = "enotaris/activities/{$draft->activity_id}/drafts";
+                $filename = 'draft_pdf_' . now()->format('YmdHis');
+                $publicId = "{$folder}/{$filename}";
+
+                $maxRetries = 3;
+                $upload = null;
+                for ($i = 0; $i < $maxRetries; $i++) {
+                    try {
+                        $upload = Cloudinary::upload($tmpFile, [
+                            'folder'        => $folder . '/',
+                            'public_id'     => $filename,
+                            'overwrite'     => true,
+                            'resource_type' => 'auto',
+                            'timeout'       => 60,
+                        ]);
+                        break;
+                    } catch (\Exception $e) {
+                        Log::warning("Cloudinary upload attempt " . ($i + 1) . " failed: " . $e->getMessage());
+                        if ($i === $maxRetries - 1) throw $e;
+                        sleep(pow(2, $i));
+                    }
+                }
+
+                if ($upload) {
+                    $draft->file      = $upload->getSecurePath();
+                    $draft->file_path = $publicId;
+                    $draft->save();
+                } else {
+                    throw new \Exception('Upload gagal setelah semua percobaan');
+                }
+            } finally {
+                if (file_exists($tmpFile)) @unlink($tmpFile);
+            }
+
+            // 10) Response
+            return response()->json([
+                'success' => true,
+                'message' => 'PDF berhasil dibuat & diunggah',
+                'data'    => [
+                    'id'         => $draft->id,
+                    'file'       => $draft->file,
+                    'file_path'  => $draft->file_path,
+                    'updated_at' => $draft->updated_at,
+                ],
+            ], 200);
+        } catch (\Throwable $e) {
+            Log::error('PDF Generation Error', [
+                'message'  => $e->getMessage(),
+                'file'     => $e->getFile(),
+                'line'     => $e->getLine(),
+                'draft_id' => $id,
             ]);
 
-            $draft->file      = $upload->getSecurePath();
-            $draft->file_path = $publicId;
-            $draft->save();
-        } finally {
-            if (file_exists($tmpFile)) @unlink($tmpFile);
+            return response()->json([
+                'success' => false,
+                'message' => 'Terjadi kesalahan saat membuat PDF: ' . $e->getMessage(),
+            ], 500);
         }
-
-        return response()->json([
-            'success' => true,
-            'message' => 'PDF berhasil dibuat & diunggah',
-            'data'    => [
-                'id'         => $draft->id,
-                'file'       => $draft->file,
-                'file_path'  => $draft->file_path,
-                'updated_at' => $draft->updated_at,
-            ],
-        ], 200);
     }
 }

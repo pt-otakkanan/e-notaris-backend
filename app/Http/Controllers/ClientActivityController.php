@@ -86,7 +86,7 @@ class ClientActivityController extends Controller
         $user = $request->user();
 
         $activity = Activity::with([
-            'deed.requirements',
+            'deed',
             'notaris',
             'track',
             'documentRequirements' => function ($q) use ($user) {
