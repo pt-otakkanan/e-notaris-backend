@@ -48,7 +48,7 @@ Route::prefix('auth')->group(function () {
     Route::post('/register', [AuthController::class, 'registerUser']);
     Route::post('/verify',   [AuthController::class, 'verifyEmail']);
     Route::post('/resend',   [AuthController::class, 'resendCode']);
-    Route::post('/login',    [AuthController::class, 'loginUser']);
+    Route::post('/login',    [AuthController::class, 'loginUser']); 
 
     Route::middleware('auth:sanctum')->group(function () {
         Route::get('/check-user', [AuthController::class, 'checkUser'])->middleware('ability:user,penghadap,admin,notaris');
