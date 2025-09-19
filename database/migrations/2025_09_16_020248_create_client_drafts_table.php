@@ -13,9 +13,13 @@ return new class extends Migration
     {
         Schema::create('client_drafts', function (Blueprint $table) {
             $table->id();
-            $table->foreignId('user_id')->constrained()->onDelete('cascade');
-            $table->foreignId('draft_id')->constrained()->onDelete('cascade');
+            $table->unsignedBigInteger('user_id')->nullable();
+            $table->unsignedBigInteger('draft_deed_id')->nullable();
             $table->enum('status_approval', ['pending', 'approved', 'rejected'])->default('pending');
+
+
+            $table->foreign('user_id')->references('id')->on('users')->onDelete('cascade');
+            $table->foreign('draft_deed_id')->references('id')->on('draft_deeds')->onDelete('cascade');
             $table->timestamps();
         });
     }
