@@ -2,6 +2,9 @@
 
 namespace App\Models;
 
+use App\Models\DraftDeed;
+use App\Models\Signature;
+use App\Models\ClientDraft;
 use App\Models\Requirement;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -52,7 +55,7 @@ class Activity extends Model
 
     public function draft()
     {
-        return $this->hasMany(DraftDeed::class);
+        return $this->hasOne(DraftDeed::class);
     }
 
     public function schedules()
@@ -139,5 +142,23 @@ class Activity extends Model
         return $query->whereHas('clientActivities', function ($q) use ($status) {
             $q->where('status_approval', $status);
         });
+    }
+
+    public function clientDrafts()
+    {
+        // Activity (id) -> DraftDeed(activity_id) -> ClientDraft(draft_deed_id)
+        return $this->hasManyThrough(
+            ClientDraft::class,   // model tujuan
+            DraftDeed::class,     // model perantara
+            'activity_id',        // FK di DraftDeed yang mengarah ke Activity
+            'draft_deed_id',      // FK di ClientDraft yang mengarah ke DraftDeed
+            'id',                 // PK di Activity
+            'id'                  // PK di DraftDeed
+        );
+    }
+
+    public function signatures()
+    {
+        return $this->hasMany(Signature::class);
     }
 }

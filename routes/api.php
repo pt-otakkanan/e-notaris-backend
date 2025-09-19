@@ -10,6 +10,7 @@ use App\Http\Controllers\TrackController;
 use App\Http\Controllers\ProductController;
 use App\Http\Controllers\ScheduleController;
 use App\Http\Controllers\TemplateController;
+use App\Http\Controllers\ClientDraftController;
 use App\Http\Controllers\RequirementController;
 use App\Http\Controllers\VerificationController;
 use App\Http\Controllers\MainValueDeedController;
@@ -48,7 +49,7 @@ Route::prefix('auth')->group(function () {
     Route::post('/register', [AuthController::class, 'registerUser']);
     Route::post('/verify',   [AuthController::class, 'verifyEmail']);
     Route::post('/resend',   [AuthController::class, 'resendCode']);
-    Route::post('/login',    [AuthController::class, 'loginUser']); 
+    Route::post('/login',    [AuthController::class, 'loginUser']);
 
     Route::middleware('auth:sanctum')->group(function () {
         Route::get('/check-user', [AuthController::class, 'checkUser'])->middleware('ability:user,penghadap,admin,notaris');
@@ -204,6 +205,16 @@ Route::prefix('user')->middleware('auth:sanctum')->group(function () {
         Route::prefix('activity')->middleware('ability:penghadap')->group(function () {
             Route::get('/',        [ClientActivityController::class, 'index']);
             Route::get('/{id}',    [ClientActivityController::class, 'show']);
+        });
+    });
+
+    Route::middleware('ability:penghadap')->group(function () {
+        Route::post('/drafts/approval/{id}', [ClientDraftController::class, 'clientApproval'])
+            ->middleware('checkverif');
+
+        Route::prefix('drafts')->middleware('ability:penghadap')->group(function () {
+            Route::get('/',   [ClientDraftController::class, 'index']);
+            Route::get('/{id}', [ClientDraftController::class, 'show']);
         });
     });
     Route::prefix('document-requirement')->middleware('ability:penghadap,notaris')->group(function () {
