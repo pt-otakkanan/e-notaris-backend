@@ -2,8 +2,11 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Track;
+use App\Models\Activity;
 use App\Models\Schedule;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
 
 class ScheduleController extends Controller
@@ -96,30 +99,26 @@ class ScheduleController extends Controller
         ], 200);
     }
 
-    /**
-     * POST /schedules
-     * Body: activity_id, date (Y-m-d), time (H:i), notes (optional)
-     */
     public function store(Request $request)
     {
         $validasi = Validator::make($request->all(), [
             'activity_id' => 'required|integer|exists:activity,id',
             'date'        => 'required|date_format:Y-m-d',
             'time'        => 'required|date_format:H:i',
-            'location'       => 'nullable|string|max:500',
+            'location'    => 'nullable|string|max:500',
             'notes'       => 'nullable|string|max:500',
         ], [
-            'location.string'         => 'Lokasi harus berupa teks.',
-            'location.max'            => 'Lokasi maksimal 500 karakter.',
+            'location.string'     => 'Lokasi harus berupa teks.',
+            'location.max'        => 'Lokasi maksimal 500 karakter.',
             'activity_id.required' => 'Activity wajib diisi.',
-            'activity_id.integer'  => 'Activity tidak valid.',
-            'activity_id.exists'   => 'Activity tidak ditemukan.',
-            'date.required'        => 'Tanggal wajib diisi.',
-            'date.date_format'     => 'Format tanggal harus Y-m-d.',
-            'time.required'        => 'Waktu wajib diisi.',
-            'time.date_format'     => 'Format waktu harus H:i (24 jam).',
-            'notes.string'         => 'Catatan harus berupa teks.',
-            'notes.max'            => 'Catatan maksimal 500 karakter.',
+            'activity_id.integer' => 'Activity tidak valid.',
+            'activity_id.exists'  => 'Activity tidak ditemukan.',
+            'date.required'       => 'Tanggal wajib diisi.',
+            'date.date_format'    => 'Format tanggal harus Y-m-d.',
+            'time.required'       => 'Waktu wajib diisi.',
+            'time.date_format'    => 'Format waktu harus H:i (24 jam).',
+            'notes.string'        => 'Catatan harus berupa teks.',
+            'notes.max'           => 'Catatan maksimal 500 karakter.',
         ]);
 
         if ($validasi->fails()) {
@@ -130,7 +129,17 @@ class ScheduleController extends Controller
             ], 422);
         }
 
-        $schedule = Schedule::create($validasi->validated());
+        $payload = $validasi->validated();
+
+        $schedule = DB::transaction(function () use ($payload) {
+            // buat jadwal
+            $schedule = Schedule::create($payload);
+
+            // set track.status_schedule = 'done'
+            $this->markScheduleStepDone($payload['activity_id']);
+
+            return $schedule;
+        });
 
         return response()->json([
             'success' => true,
@@ -139,10 +148,6 @@ class ScheduleController extends Controller
         ], 201);
     }
 
-    /**
-     * PUT /schedules/{id}
-     * Body: activity_id, date (Y-m-d), time (H:i), notes (optional)
-     */
     public function update(Request $request, $id)
     {
         $schedule = Schedule::find($id);
@@ -158,20 +163,20 @@ class ScheduleController extends Controller
             'activity_id' => 'required|integer|exists:activity,id',
             'date'        => 'required|date_format:Y-m-d',
             'time'        => 'required|date_format:H:i',
-            'location'       => 'nullable|string|max:500',
+            'location'    => 'nullable|string|max:500',
             'notes'       => 'nullable|string|max:500',
         ], [
-            'location.string'         => 'Lokasi harus berupa teks.',
-            'location.max'            => 'Lokasi maksimal 500 karakter.',
+            'location.string'     => 'Lokasi harus berupa teks.',
+            'location.max'        => 'Lokasi maksimal 500 karakter.',
             'activity_id.required' => 'Activity wajib diisi.',
-            'activity_id.integer'  => 'Activity tidak valid.',
-            'activity_id.exists'   => 'Activity tidak ditemukan.',
-            'date.required'        => 'Tanggal wajib diisi.',
-            'date.date_format'     => 'Format tanggal harus Y-m-d.',
-            'time.required'        => 'Waktu wajib diisi.',
-            'time.date_format'     => 'Format waktu harus H:i (24 jam).',
-            'notes.string'         => 'Catatan harus berupa teks.',
-            'notes.max'            => 'Catatan maksimal 500 karakter.',
+            'activity_id.integer' => 'Activity tidak valid.',
+            'activity_id.exists'  => 'Activity tidak ditemukan.',
+            'date.required'       => 'Tanggal wajib diisi.',
+            'date.date_format'    => 'Format tanggal harus Y-m-d.',
+            'time.required'       => 'Waktu wajib diisi.',
+            'time.date_format'    => 'Format waktu harus H:i (24 jam).',
+            'notes.string'        => 'Catatan harus berupa teks.',
+            'notes.max'           => 'Catatan maksimal 500 karakter.',
         ]);
 
         if ($validasi->fails()) {
@@ -184,19 +189,44 @@ class ScheduleController extends Controller
 
         $data = $validasi->validated();
 
-        foreach (['activity_id', 'date', 'time', 'notes', 'location'] as $f) {
-            if (array_key_exists($f, $data)) {
-                $schedule->{$f} = $data[$f];
+        DB::transaction(function () use ($schedule, $data) {
+            foreach (['activity_id', 'date', 'time', 'notes', 'location'] as $f) {
+                if (array_key_exists($f, $data)) {
+                    $schedule->{$f} = $data[$f];
+                }
             }
-        }
+            $schedule->save();
 
-        $schedule->save();
+            // pastikan track step schedule = done (kalau sudah done, tetap dipertahankan)
+            $this->markScheduleStepDone($schedule->activity_id);
+        });
 
         return response()->json([
             'success' => true,
             'message' => 'Jadwal berhasil diperbarui',
             'data'    => $schedule
         ], 200);
+    }
+
+    /**
+     * Set track.status_schedule menjadi 'done' untuk activity terkait.
+     * Aman terhadap kondisi tidak ditemukan (no-op).
+     */
+    private function markScheduleStepDone(int $activityId): void
+    {
+        // Ambil activity beserta track-nya
+        $activity = Activity::select(['id', 'track_id'])->with('track')->find($activityId);
+        if (!$activity) return;
+
+        // Jika relasi track tidak otomatis, fallback cari via track_id
+        $track = $activity->track ?? Track::find($activity->track_id);
+        if (!$track) return;
+
+        if ($track->status_schedule !== 'done') {
+            $track->status_schedule = 'done';
+            $track->status_sign = 'todo';
+            $track->save();
+        }
     }
 
     /**

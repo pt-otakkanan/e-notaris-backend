@@ -7,13 +7,14 @@ use App\Models\User;
 use App\Models\Track;
 use App\Models\Activity;
 use App\Models\DraftDeed;
-use App\Models\Requirement;              // requirement milik activity
+use App\Models\ClientDraft;
 use Illuminate\Support\Str;
 use Illuminate\Http\Request;
 use App\Models\ClientActivity;
 use Illuminate\Support\Facades\DB;
 use App\Models\DocumentRequirement;
 use Illuminate\Support\Facades\Validator;
+use App\Models\Requirement;              // requirement milik activity
 
 class NotarisActivityController extends Controller
 {
@@ -239,7 +240,7 @@ class NotarisActivityController extends Controller
                     ->orderBy('id', 'asc');
             },
             'schedules',
-            'draft'
+            'draft.clientDrafts.user'
         ])
             ->where('id', $id)
             ->where(function ($q) use ($user) {
@@ -397,7 +398,7 @@ class NotarisActivityController extends Controller
             }
 
             // 6) Draft awal
-            DraftDeed::create([
+            $draft = DraftDeed::create([
                 'activity_id'           => $activity->id,
                 'custom_value_template' => null,
                 'reading_schedule'      => null,
@@ -405,6 +406,21 @@ class NotarisActivityController extends Controller
                 'file'                  => null,
                 'file_path'             => null,
             ]);
+
+            // 6b) ClientDraft per klien untuk draft yang baru dibuat
+            if (!empty($orderedClientIds)) {
+                $cdRows = [];
+                foreach ($orderedClientIds as $uid) {
+                    $cdRows[] = [
+                        'user_id'        => $uid,
+                        'draft_deed_id'  => $draft->id,   // ← pakai 'draft_id' jika nama kolommu itu
+                        'status_approval' => 'pending',
+                        'created_at'     => $now,
+                        'updated_at'     => $now,
+                    ];
+                }
+                ClientDraft::insert($cdRows);
+            }
 
             // 7) Load relasi
             $activity->load([
@@ -415,7 +431,8 @@ class NotarisActivityController extends Controller
                 'clientActivities' => fn($q) => $q->orderBy('order', 'asc'),
                 'requirements',
                 'documentRequirements',
-                'draft',
+                // 'draft',
+                'draft.clientDrafts.user',
                 'schedules',
             ]);
 

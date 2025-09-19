@@ -196,7 +196,6 @@ class DraftController extends Controller
             'reading_schedule'      => 'sometimes|nullable|date',
             'status_approval'       => 'sometimes|in:pending,approved,rejected',
             'file'                  => 'sometimes|file|mimes:pdf,doc,docx,jpg,jpeg,png,webp|max:10240',
-            // opsional: hapus file lama tanpa mengunggah baru
             'clear_file'            => 'sometimes|boolean',
         ]);
 
@@ -227,7 +226,6 @@ class DraftController extends Controller
         }
 
         if ($request->hasFile('file')) {
-            // hapus lama
             if (!empty($draft->file_path)) {
                 Cloudinary::destroy($draft->file_path);
             }
@@ -252,12 +250,18 @@ class DraftController extends Controller
 
         $draft->save();
 
+        // reset status approval semua klien ke pending
+        if ($draft->clientDrafts()->exists()) {
+            $draft->clientDrafts()->update(['status_approval' => 'pending']);
+        }
+
         return response()->json([
             'success' => true,
             'message' => 'Draft berhasil diperbarui',
             'data'    => $draft->load('activity:id,name,tracking_code'),
         ], 200);
     }
+
 
     /**
      * DELETE /draft/{id}
@@ -332,7 +336,7 @@ class DraftController extends Controller
             if (preg_match('/\{\{[^}]+\}\}/', $htmlRendered) || preg_match('/\{[a-z0-9_]+\}/i', $htmlRendered)) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Masih ada token yang belum tergantikan di HTML. Kirim HTML final dari FE.'
+                    'message' => 'Ada variabel yang tidak sesuai'
                 ], 422);
             }
 
@@ -394,7 +398,7 @@ h1,h2,h3,h4,h5,h6{ margin:0 0 10px; font-weight:bold; }
 p{ margin:0 0 8px; text-align:justify; }
 ul,ol{ margin:0 0 12px 22px; padding:0; }
 li{ margin-bottom: 4px; }
-table{ width:100%; border-collapse:collapse; margin:12px 0; }
+table { width:100%; border-collapse:collapse; margin:0; }
 td,th{ border:1px solid #000; padding:6px 8px; text-align:left; }
 th{ font-weight:bold; background:#f5f5f5; }
 .ql-align-center{text-align:center;} .ql-align-right{text-align:right;}
