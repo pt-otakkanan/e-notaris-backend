@@ -17,7 +17,10 @@ class DraftDeed extends Model
         'reading_schedule',
         'status_approval',
         'file',
-        'file_path'
+        'file_path',
+        // 👇 hasil TTD
+        'file_ttd',
+        'file_ttd_path',
     ];
 
     protected $casts = [

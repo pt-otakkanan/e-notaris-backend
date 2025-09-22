@@ -176,12 +176,13 @@ class ClientDraftController extends Controller
                     $track->status_docs    = 'done';
                     $track->status_draft    = 'done';
                     $track->status_schedule = 'todo'; // lanjut ke tahap berikutnya
-                } else {
-                    // masih proses approval
-                    if ($track->status_draft !== 'pending') {
-                        $track->status_draft = 'pending';
-                    }
                 }
+                //  else {
+                //     // masih proses approval
+                //     if ($track->status_draft !== 'pending') {
+                //         $track->status_draft = 'pending';
+                //     }
+                // }
                 $track->save();
             }
 

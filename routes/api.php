@@ -4,6 +4,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\DeedController;
+use App\Http\Controllers\SignController;
 use App\Http\Controllers\UserController;
 use App\Http\Controllers\DraftController;
 use App\Http\Controllers\TrackController;
@@ -153,6 +154,12 @@ Route::prefix('notaris')->middleware('auth:sanctum')->group(function () {
         ->middleware(['ability:notaris,penghadap', 'checkverif'])
         ->group(function () {
             Route::get('/{id}', [NotarisActivityController::class, 'show']);
+        });
+    Route::prefix('activities/{id}/sign')
+        ->middleware(['ability:notaris', 'checkverif'])
+        ->group(function () {
+            Route::post('/apply', [SignController::class, 'apply']);
+            Route::post('/placements', [SignController::class, 'storePlacements']);
         });
 
     Route::prefix('track')
