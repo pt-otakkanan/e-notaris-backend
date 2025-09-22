@@ -480,7 +480,7 @@ class NotarisActivityController extends Controller
 
         return DB::transaction(function () use ($data, $activity, $now) {
 
-            // 1) Daftar klien target
+            // 1) Tentukan target klien (urutan sesuai input FE)
             if (isset($data['client_ids'])) {
                 $validIds = User::whereIn('id', $data['client_ids'])
                     ->where('role_id', 2)
@@ -490,6 +490,14 @@ class NotarisActivityController extends Controller
                 $orderedClientIds = [];
                 foreach ($data['client_ids'] as $cid) {
                     if (in_array($cid, $validIds, true)) $orderedClientIds[] = $cid;
+                }
+
+                if (empty($orderedClientIds)) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Daftar klien tidak valid.',
+                        'data'    => null,
+                    ], 422);
                 }
             } else {
                 $orderedClientIds = $activity->clientActivities()
@@ -504,14 +512,15 @@ class NotarisActivityController extends Controller
                 $activity->save();
             }
 
-            // 3) Update deed_id (TIDAK menyentuh requirement)
+            // 3) Update deed_id (tidak menyentuh requirement)
             if (isset($data['deed_id']) && (int)$data['deed_id'] !== (int)$activity->deed_id) {
                 $activity->deed_id = $data['deed_id'];
                 $activity->save();
             }
 
-            // 4) Jika klien berubah → reset pivot & regenerate doc-req
+            // 4) Jika klien berubah → reset pivot & regen doc-req
             if (isset($data['client_ids'])) {
+                // Reset pivot client_activity
                 ClientActivity::where('activity_id', $activity->id)->delete();
 
                 $rows = [];
@@ -528,7 +537,7 @@ class NotarisActivityController extends Controller
                 }
                 if ($rows) ClientActivity::insert($rows);
 
-                // regen doc-req berdasar requirement-activity terkini
+                // Regen document requirements untuk kombinasi activity × klien
                 DocumentRequirement::where('activity_notaris_id', $activity->id)->delete();
 
                 $actReq = Requirement::where('activity_id', $activity->id)->get();
@@ -553,8 +562,72 @@ class NotarisActivityController extends Controller
                     }
                     if ($docRows) DocumentRequirement::insert($docRows);
                 }
+
+                // ====== Sinkronisasi CLIENT DRAFTS ======
+                // Ambil draft untuk activity ini (buat kalau belum ada)
+                $draft = DraftDeed::firstOrCreate(
+                    ['activity_id' => $activity->id],
+                    [
+                        'custom_value_template' => null,
+                        'reading_schedule'      => null,
+                        'status_approval'       => 'pending',
+                        'file'                  => null,
+                        'file_path'             => null,
+                        'created_at'            => $now,
+                        'updated_at'            => $now,
+                    ]
+                );
+
+                // Jika sudah ada yang approve/reject → TOLAK perubahan daftar klien
+                $locked = ClientDraft::where('draft_deed_id', $draft->id)
+                    ->whereIn('status_approval', ['approved', 'rejected'])
+                    ->exists();
+
+                if ($locked) {
+                    // lempar exception agar transaksi rollback, lalu ditangkap oleh Laravel (422)
+                    throw new \Illuminate\Validation\ValidationException(
+                        Validator::make([], []),
+                        response()->json([
+                            'success' => false,
+                            'message' => 'Tidak dapat mengubah daftar klien karena sudah ada yang menyetujui/menolak draft.',
+                            'data'    => null
+                        ], 422)
+                    );
+                }
+
+                // Diff: tambah/hapus baris client_drafts sesuai perubahan
+                $existingIds = ClientDraft::where('draft_deed_id', $draft->id)
+                    ->pluck('user_id')
+                    ->all();
+
+                $toAdd    = array_values(array_diff($orderedClientIds, $existingIds));
+                $toRemove = array_values(array_diff($existingIds, $orderedClientIds));
+
+                if (!empty($toAdd)) {
+                    $cdRows = [];
+                    foreach ($toAdd as $uid) {
+                        $cdRows[] = [
+                            'user_id'         => $uid,
+                            'draft_deed_id'   => $draft->id, // ganti ke 'draft_id' kalau nama kolommu itu
+                            'status_approval' => 'pending',
+                            'created_at'      => $now,
+                            'updated_at'      => $now,
+                        ];
+                    }
+                    ClientDraft::insert($cdRows);
+                }
+
+                if (!empty($toRemove)) {
+                    // Hanya boleh menghapus yang masih pending
+                    ClientDraft::where('draft_deed_id', $draft->id)
+                        ->whereIn('user_id', $toRemove)
+                        ->where('status_approval', 'pending')
+                        ->delete();
+                }
+                // ====== END sinkronisasi client drafts ======
             }
 
+            // 5) Response + eager load lengkap untuk FE
             $activity->load([
                 'deed',
                 'notaris',
@@ -563,7 +636,7 @@ class NotarisActivityController extends Controller
                 'clientActivities' => fn($q) => $q->orderBy('order', 'asc'),
                 'requirements',
                 'documentRequirements',
-                'draft',
+                'draft.clientDrafts.user', // penting: kirim nama/email ke FE
                 'schedules',
             ]);
 
@@ -574,6 +647,7 @@ class NotarisActivityController extends Controller
             ], 200);
         });
     }
+
 
     public function destroy(Request $request, $id)
     {

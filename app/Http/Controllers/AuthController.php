@@ -228,7 +228,7 @@ class AuthController extends Controller
 
         // $user->tokens()->delete(); // aktifkan jika mau single-active-token
 
-        $newToken = $user->createToken('user-token', $abilities, now()->addMinutes(30))
+        $newToken = $user->createToken('user-token', $abilities, now()->addMinutes(1440))
             ->plainTextToken;
 
         return response()->json([
