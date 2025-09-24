@@ -1,32 +1,42 @@
 <?php // app/Http/Controllers/SignController.php
 namespace App\Http\Controllers;
 
+use App\Models\User;
+use App\Models\Track;
+use setasign\Fpdi\Fpdi;
 use App\Models\Activity;
 use App\Models\DraftDeed;
-use App\Models\Signature as SignatureModel;
-use App\Models\User;
-use CloudinaryLabs\CloudinaryLaravel\Facades\Cloudinary;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
-use setasign\Fpdi\Fpdi;
+use Illuminate\Support\Facades\Http;
+use App\Models\Signature as SignatureModel;
+use CloudinaryLabs\CloudinaryLaravel\Facades\Cloudinary;
 
 class SignController extends Controller
 {
+
     public function apply(Request $request, $activityId)
     {
         try {
             $user = $request->user();
 
-            // 1) Ambil activity + draft + otorisasi
-            $activity = Activity::with(['notaris', 'clients.identity', 'draft'])
+            // 1) Ambil activity + draft + track untuk cek status
+            $activity = Activity::with(['notaris', 'clients.identity', 'draft', 'track'])
                 ->find($activityId);
 
             if (!$activity || !$activity->draft) {
                 return response()->json(['success' => false, 'message' => 'Activity/draft tidak ditemukan'], 404);
             }
 
-            // Otorisasi sederhana: admin (role_id=1) atau notaris pemilik aktivitas atau klien yang terdaftar
+            // 🔒 Cegah TTD jika sudah ditandai selesai
+            if (($activity->track?->status_sign ?? null) === 'done') {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Dokumen sudah ditandai selesai. TTD tidak dapat diubah lagi.'
+                ], 422);
+            }
+
+            // 2) Otorisasi sederhana
             $allowed = $user->role_id === 1
                 || $activity->user_notaris_id === $user->id
                 || $activity->clients->contains('id', $user->id);
@@ -35,7 +45,7 @@ class SignController extends Controller
                 return response()->json(['success' => false, 'message' => 'Tidak berhak'], 403);
             }
 
-            // 2) Validasi payload
+            // 3) Validasi payload
             $data = $request->validate([
                 'source_pdf' => ['nullable', 'string'],
                 'placements' => ['required', 'array', 'min:1'],
@@ -49,7 +59,7 @@ class SignController extends Controller
                 'placements.*.image_data_url' => ['nullable', 'string'],
             ]);
 
-            // 3) Ambil PDF sumber
+            // 4) Ambil PDF sumber
             $sourceUrl = $data['source_pdf'] ?? $activity->draft->file;
             if (!$sourceUrl) {
                 return response()->json(['success' => false, 'message' => 'PDF sumber tidak tersedia'], 422);
@@ -62,11 +72,10 @@ class SignController extends Controller
             $bin = Http::timeout(60)->get($sourceUrl)->body();
             file_put_contents($tmpPdf, $bin);
 
-            // 4) Siapkan FPDI
-            $pdf = new Fpdi('P', 'mm'); // orientasi akan ikut template
+            // 5) Siapkan FPDI
+            $pdf = new Fpdi('P', 'mm'); // orientasi mengikuti template
             $pageCount = $pdf->setSourceFile($tmpPdf);
 
-            // 5) Proses tiap halaman
             // Kelompokkan placement by page
             $byPage = [];
             foreach ($data['placements'] as $p) {
@@ -93,7 +102,6 @@ class SignController extends Controller
                             }
                             $imgUrl = $signUser?->identity?->file_sign;
                             if (!$imgUrl) {
-                                // tetap lanjut tapi skip placement ini
                                 Log::warning("Signature image missing for user_id={$pl['source_user_id']}");
                                 continue;
                             }
@@ -115,9 +123,7 @@ class SignController extends Controller
                         $w = (float)$pl['w_ratio'] * $size['width'];
                         $h = (float)$pl['h_ratio'] * $size['height'];
 
-                        // 8) Stamp gambar (FPDF::Image), koordinat dalam mm
-                        // NB: Image bisa pakai w & h; kalau salah satu 0 maka proporsional.
-                        // Kita set keduanya supaya sesuai area.
+                        // 8) Tempel gambar
                         try {
                             $pdf->Image($imgTmp, $x, $y, $w, $h);
                         } catch (\Throwable $e) {
@@ -177,13 +183,8 @@ class SignController extends Controller
                     'w_ratio'        => $p['w_ratio'],
                     'h_ratio'        => $p['h_ratio'],
                     'image_data_url' => $p['kind'] === 'draw' ? ($p['image_data_url'] ?? null) : null,
-                    // kamu juga bisa simpan source_image_url utk audit
                 ]);
             }
-
-            // (opsional) update track status
-            // jika semua pihak sudah sign → set status_sign = 'done'
-            // $activity->track->update([...]);
 
             return response()->json([
                 'success' => true,
@@ -198,6 +199,61 @@ class SignController extends Controller
             return response()->json(['success' => false, 'message' => 'Gagal menerapkan TTD: ' . $e->getMessage()], 500);
         }
     }
+
+    public function resetTtd(Request $request, $activityId)
+    {
+        try {
+            $user = $request->user();
+
+            // Ambil activity + draft + track
+            $activity = Activity::with(['draft', 'track'])->find($activityId);
+            if (!$activity || !$activity->draft) {
+                return response()->json(['success' => false, 'message' => 'Activity/draft tidak ditemukan'], 404);
+            }
+
+            // 🔒 hanya admin/notaris
+            $allowed = $user->role_id === 1 || $activity->user_notaris_id === $user->id;
+            if (!$allowed) {
+                return response()->json(['success' => false, 'message' => 'Tidak berhak'], 403);
+            }
+
+            // 🔒 jika sudah selesai → tidak boleh reset
+            if (($activity->track?->status_sign ?? null) === 'done') {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Dokumen sudah ditandai selesai. Tidak dapat direset.'
+                ], 422);
+            }
+
+            // Hapus file_ttd lama di Cloudinary (jika ada)
+            if (!empty($activity->draft->file_ttd_path)) {
+                try {
+                    Cloudinary::destroy($activity->draft->file_ttd_path);
+                } catch (\Exception $e) {
+                    Log::warning('Cloudinary destroy (file_ttd) gagal: ' . $e->getMessage());
+                }
+            }
+
+            // Null-kan field hasil TTD
+            $activity->draft->file_ttd = null;
+            $activity->draft->file_ttd_path = null;
+            $activity->draft->save();
+
+            return response()->json([
+                'success' => true,
+                'message' => 'File TTD telah direset ke file awal.',
+                'data' => [
+                    'file'       => $activity->draft->file,       // file sumber (tanpa TTD)
+                    'file_ttd'   => $activity->draft->file_ttd,   // null
+                    'file_path'  => $activity->draft->file_path,
+                ],
+            ]);
+        } catch (\Throwable $e) {
+            Log::error('Reset TTD error', ['msg' => $e->getMessage(), 'line' => $e->getLine()]);
+            return response()->json(['success' => false, 'message' => 'Gagal reset file TTD: ' . $e->getMessage()], 500);
+        }
+    }
+
 
     private function downloadToTmp(string $url, string $prefix): ?string
     {
@@ -224,6 +280,79 @@ class SignController extends Controller
         } catch (\Throwable $e) {
             Log::warning("saveDataUrl failed: " . $e->getMessage());
             return null;
+        }
+    }
+
+
+
+    public function markDone(Request $request, $activityId)
+    {
+        try {
+            $user = $request->user();
+
+            // Ambil activity + relasi track + draft
+            $activity = Activity::with(['notaris', 'track', 'draft'])->find($activityId);
+            if (!$activity) {
+                return response()->json(['success' => false, 'message' => 'Activity tidak ditemukan'], 404);
+            }
+
+            // Otorisasi: admin atau notaris pemilik
+            $allowed = $user->role_id === 1 || $activity->user_notaris_id === $user->id;
+            if (!$allowed) {
+                return response()->json(['success' => false, 'message' => 'Tidak berhak'], 403);
+            }
+
+            // Cek apakah file_ttd sudah ada
+            if (!$activity->draft || empty($activity->draft->file_ttd)) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Tidak bisa menandai selesai. File TTD belum tersedia.'
+                ], 422);
+            }
+
+            // Ambil/siapkan track record
+            $track = $activity->track;
+
+            if (!$track) {
+                // buat baru
+                $track = new Track();
+                $track->status_sign = 'done';
+                $track->status_print = 'done';
+                $track->sign_completed_at = now();
+                $track->save();
+
+                $activity->track()->associate($track);
+                $activity->save();
+            } else {
+                // update existing
+                $track->fill([
+                    'status_sign'       => 'done',
+                    'status_print'      => 'done',
+                    'sign_completed_at' => now(),
+                ]);
+                $track->save();
+            }
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Step Sign ditandai selesai',
+                'data' => [
+                    'activity_id'       => $activity->id,
+                    'sign_status'       => $track->status_sign,
+                    'sign_completed_at' => $track->sign_completed_at,
+                ],
+            ], 200);
+        } catch (\Throwable $e) {
+            Log::error('Sign markDone error', [
+                'message'     => $e->getMessage(),
+                'line'        => $e->getLine(),
+                'activity_id' => $activityId,
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Gagal menandai selesai: ' . $e->getMessage(),
+            ], 500);
         }
     }
 }
