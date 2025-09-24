@@ -397,15 +397,20 @@ class NotarisActivityController extends Controller
                 DocumentRequirement::insert($docRows);
             }
 
-            // 6) Draft awal
+
             $draft = DraftDeed::create([
                 'activity_id'           => $activity->id,
+                'reference_number'      => now()->format('md')
+                    . '/OK/'
+                    . $activity->tracking_code
+                    . '/' . now()->format('Y'),
                 'custom_value_template' => null,
                 'reading_schedule'      => null,
                 'status_approval'       => 'pending',
                 'file'                  => null,
                 'file_path'             => null,
             ]);
+
 
             // 6b) ClientDraft per klien untuk draft yang baru dibuat
             if (!empty($orderedClientIds)) {

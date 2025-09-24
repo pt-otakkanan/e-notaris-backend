@@ -251,4 +251,74 @@ class ScheduleController extends Controller
             'data'    => null
         ], 200);
     }
+
+    /**
+     * GET /schedule/user
+     * Ambil semua jadwal milik user login (sebagai penghadap/klien).
+     */
+    public function allScheduleUser(Request $request)
+    {
+        $user    = $request->user();
+        $perPage = (int) $request->query('per_page', 10);
+        $perPage = $perPage > 0 ? $perPage : 10;
+
+        $scope    = $request->query('scope'); // today|upcoming|past
+        $dateFrom = $request->query('date_from');
+        $dateTo   = $request->query('date_to');
+        $q        = $request->query('search');
+
+        // ambil semua schedule yang activity-nya punya relasi ke user ini lewat clientActivities
+        // tambahkan jika itu notaris maka dilihat dari activity.user_notaris_id = user.id
+        $query = Schedule::with('activity')
+            ->whereHas('activity', function ($sub) use ($user) {
+                $sub->whereHas('clientActivities', function ($sub2) use ($user) {
+                    $sub2->where('user_id', $user->id);
+                });
+                // jika user adalah notaris, maka ambil juga jadwal dari activity yang dia buat
+                if ($user->role_id === 3) {
+                    $sub->orWhere('user_notaris_id', $user->id);
+                }
+            });
+        // scope (today|upcoming|past)
+        if ($scope === 'today') {
+            $query->today();
+        } elseif ($scope === 'upcoming') {
+            $query->upcoming();
+        } elseif ($scope === 'past') {
+            $query->past();
+        }
+
+        // filter by date range
+        if ($dateFrom) {
+            $query->whereDate('date', '>=', $dateFrom);
+        }
+        if ($dateTo) {
+            $query->whereDate('date', '<=', $dateTo);
+        }
+
+        // search di notes / location
+        if ($q) {
+            $query->where(function ($sub) use ($q) {
+                $sub->where('notes', 'like', "%{$q}%")
+                    ->orWhere('location', 'like', "%{$q}%");
+            });
+        }
+
+        $schedules = $query
+            ->orderBy('date', 'asc')
+            ->orderBy('time', 'asc')
+            ->paginate($perPage);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Daftar jadwal user berhasil diambil',
+            'data'    => $schedules->items(),
+            'meta'    => [
+                'current_page' => $schedules->currentPage(),
+                'per_page'     => $schedules->perPage(),
+                'total'        => $schedules->total(),
+                'last_page'    => $schedules->lastPage(),
+            ]
+        ], 200);
+    }
 }
