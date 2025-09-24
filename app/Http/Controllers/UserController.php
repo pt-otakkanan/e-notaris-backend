@@ -447,7 +447,7 @@ class UserController extends Controller
 
     public function updateIdentityProfile(Request $request)
     {
-        // Validasi (PDF diperbolehkan untuk KTP/KK/NPWP/KTP Notaris → JANGAN pakai 'image')
+        // Validasi (PDF diperbolehkan utk KTP/KK/NPWP/KTP Notaris)
         $validator = Validator::make($request->all(), [
             'ktp'            => 'required|string|max:16',
             'npwp'           => 'sometimes|nullable|string|max:20',
@@ -460,39 +460,19 @@ class UserController extends Controller
             'file_sign'        => 'sometimes|file|mimes:png|max:1024',
             'file_photo'       => 'sometimes|file|mimes:jpg,jpeg,png|max:2048',
         ], [
-            // Field teks
             'ktp.required' => 'NIK wajib diisi.',
             'ktp.max'      => 'NIK maksimal 16 karakter.',
             'npwp.max'     => 'NPWP maksimal 20 karakter.',
             'ktp_notaris.max' => 'KTP Notaris maksimal 16 karakter.',
-
-            // File umum
-            'file_ktp.file'   => 'File KTP harus berupa berkas yang valid.',
-            'file_ktp.mimes'  => 'File KTP harus berupa JPG, JPEG, PNG, atau PDF.',
-            'file_ktp.max'    => 'Ukuran file KTP maksimal 2 MB.',
-
-            'file_kk.file'   => 'File KK harus berupa berkas yang valid.',
-            'file_kk.mimes'  => 'File KK harus berupa JPG, JPEG, PNG, atau PDF.',
-            'file_kk.max'    => 'Ukuran file KK maksimal 2 MB.',
-
-            'file_npwp.file'   => 'File NPWP harus berupa berkas yang valid.',
-            'file_npwp.mimes'  => 'File NPWP harus berupa JPG, JPEG, PNG, atau PDF.',
-            'file_npwp.max'    => 'Ukuran file NPWP maksimal 2 MB.',
-
-            'file_ktp_notaris.file'   => 'File KTP Notaris harus berupa berkas yang valid.',
-            'file_ktp_notaris.mimes'  => 'File KTP Notaris harus berupa JPG, JPEG, PNG, atau PDF.',
-            'file_ktp_notaris.max'    => 'Ukuran file KTP Notaris maksimal 2 MB.',
-
-            // File khusus
-            'file_sign.file'  => 'Tanda tangan harus berupa berkas yang valid.',
-            'file_sign.mimes' => 'Tanda tangan hanya diperbolehkan dalam format PNG.',
+            'file_ktp.mimes'  => 'File KTP harus JPG, JPEG, PNG, atau PDF.',
+            'file_kk.mimes'   => 'File KK harus JPG, JPEG, PNG, atau PDF.',
+            'file_npwp.mimes' => 'File NPWP harus JPG, JPEG, PNG, atau PDF.',
+            'file_ktp_notaris.mimes' => 'File KTP Notaris harus JPG, JPEG, PNG, atau PDF.',
+            'file_sign.mimes' => 'Tanda tangan hanya diperbolehkan PNG.',
             'file_sign.max'   => 'Ukuran tanda tangan maksimal 1 MB.',
-
-            'file_photo.file'  => 'Foto formal harus berupa berkas yang valid.',
-            'file_photo.mimes' => 'Foto formal hanya diperbolehkan dalam format JPG, JPEG, atau PNG.',
-            'file_photo.max'   => 'Ukuran foto formal maksimal 2 MB.',
+            'file_photo.mimes' => 'Foto formal hanya JPG, JPEG, atau PNG.',
+            'file_photo.max'  => 'Ukuran foto formal maksimal 2 MB.',
         ]);
-
 
         if ($validator->fails()) {
             return response()->json([
@@ -505,9 +485,17 @@ class UserController extends Controller
         try {
             $user = Auth::user();
 
+            // 🔒 BLOCK: jika sudah approved, tidak boleh update identity
+            if (strtolower((string) $user->status_verification) === 'approved') {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Profil identitas tidak dapat diubah karena sudah terverifikasi (approved). Silakan hubungi admin untuk membuka akses perubahan.',
+                ], 403);
+            }
+
             return DB::transaction(function () use ($request, $user) {
 
-                // ambil / buat identity
+                // Ambil / buat identity
                 $identity = \App\Models\Identity::where('user_id', $user->id)->first();
                 if (!$identity) {
                     $identity = new \App\Models\Identity();
@@ -516,7 +504,7 @@ class UserController extends Controller
 
                 $hasChanges = false;
 
-                // --- update field sederhana
+                // Field teks
                 if ($request->filled('ktp') && $request->ktp !== $identity->ktp) {
                     $identity->ktp = $request->ktp;
                     $hasChanges = true;
@@ -530,7 +518,7 @@ class UserController extends Controller
                     $hasChanges = true;
                 }
 
-                // --- upload helper
+                // Upload helper
                 $fileFields = [
                     'file_ktp'         => 'ktp',
                     'file_kk'          => 'kk',
@@ -542,7 +530,6 @@ class UserController extends Controller
 
                 foreach ($fileFields as $fileField => $folder) {
                     if ($request->hasFile($fileField)) {
-                        // hapus lama kalau ada
                         $pathField = $fileField . '_path';
                         if (!empty($identity->{$pathField})) {
                             try {
@@ -555,16 +542,15 @@ class UserController extends Controller
                             }
                         }
 
-                        // upload baru
                         $uploaded = Cloudinary::upload(
                             $request->file($fileField)->getRealPath(),
                             [
-                                'folder'       => "enotaris/users/{$user->id}/identity/{$folder}",
-                                'public_id'    => $folder . '_' . time() . '_' . Str::random(8),
-                                'overwrite'    => true,
-                                'resource_type' => 'auto',
-                                'timeout'      => 30,
-                                'quality'      => 'auto:good',
+                                'folder'         => "enotaris/users/{$user->id}/identity/{$folder}",
+                                'public_id'      => $folder . '_' . time() . '_' . \Illuminate\Support\Str::random(8),
+                                'overwrite'      => true,
+                                'resource_type'  => 'auto',
+                                'timeout'        => 30,
+                                'quality'        => 'auto:good',
                             ]
                         );
 
@@ -574,14 +560,13 @@ class UserController extends Controller
                     }
                 }
 
-                // simpan identity
                 $identity->save();
 
-                // --- SET STATUS VERIFIKASI KE PENDING JIKA ADA PERUBAHAN
+                // Jika ada perubahan, set status verifikasi ke pending lagi (kecuali kamu ingin tetap biarkan)
                 if ($hasChanges && $user->status_verification !== 'pending') {
                     $user->status_verification = 'pending';
-                    $user->notes_verification  = null; // kosongkan catatan lama
-                    $user->save(); // PENTING: simpan user!
+                    $user->notes_verification  = null;
+                    $user->save();
                 }
 
                 return response()->json([
@@ -594,9 +579,9 @@ class UserController extends Controller
                         'telepon'            => $user->telepon,
                         'gender'             => $user->gender,
                         'address'            => $user->address,
-                        'province'            => $user->province,
-                        'city'            => $user->city,
-                        'postal_code'            => $user->postal_code,
+                        'province'           => $user->province,
+                        'city'               => $user->city,
+                        'postal_code'        => $user->postal_code,
                         'file_avatar'        => $user->file_avatar,
                         'file_avatar_path'   => $user->file_avatar_path,
 
@@ -616,9 +601,8 @@ class UserController extends Controller
                         'file_photo'         => $identity->file_photo,
                         'file_photo_path'    => $identity->file_photo_path,
 
-                        // tambahkan status user sekarang kalau perlu di FE
                         'status_verification' => $user->status_verification,
-                        'notes_verification' => $user->notes_verification,
+                        'notes_verification'  => $user->notes_verification,
                     ],
                 ], 200);
             });

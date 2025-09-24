@@ -12,13 +12,13 @@ class DraftDeed extends Model
     use HasFactory;
 
     protected $fillable = [
+        'reference_number',
         'activity_id',
         'custom_value_template',
         'reading_schedule',
         'status_approval',
         'file',
         'file_path',
-        // 👇 hasil TTD
         'file_ttd',
         'file_ttd_path',
     ];

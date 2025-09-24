@@ -332,11 +332,37 @@ class DraftController extends Controller
                 return response()->json(['success' => false, 'message' => 'HTML kosong'], 422);
             }
 
-            // Opsional: tolak jika masih ada token yang belum terganti
-            if (preg_match('/\{\{[^}]+\}\}/', $htmlRendered) || preg_match('/\{[a-z0-9_]+\}/i', $htmlRendered)) {
+            // ===== Helper: cari token yang belum terganti
+            $findUnreplacedTokens = function (string $html) {
+                $tokens = [];
+
+                // {{ token }}
+                if (preg_match_all('/\{\{\s*([A-Za-z0-9_]+)\s*\}\}/', $html, $m1)) {
+                    $tokens = array_merge($tokens, $m1[1]);
+                }
+
+                // {token} (bukan bagian dari {{token}})
+                if (preg_match_all('/(?<!\{)\{([A-Za-z0-9_]+)\}(?!\})/', $html, $m2)) {
+                    $tokens = array_merge($tokens, $m2[1]);
+                }
+
+                $tokens = array_values(array_unique($tokens));
+
+                // (opsional) whitelist jika ada token memang dibiarkan
+                // $whitelist = ['page_break'];
+                // $tokens = array_values(array_diff($tokens, $whitelist));
+
+                return $tokens;
+            };
+
+            // 2b) Validasi: tolak jika ada token belum terganti → kasih tahu daftar token-nya
+            $unreplaced = $findUnreplacedTokens($htmlRendered);
+            if (!empty($unreplaced)) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Ada variabel yang tidak sesuai'
+                    'message' => 'Ada variabel yang tidak sesuai: ' . implode(', ', $unreplaced),
+                    'errors'  => ['unknown_tokens' => $unreplaced],
+                    'data'    => ['unknown_tokens' => $unreplaced, 'count' => count($unreplaced)],
                 ], 422);
             }
 
@@ -390,7 +416,7 @@ class DraftController extends Controller
             $mb = round($o['margins_mm']['bottom'] * $MM_TO_PT) . 'pt';
             $ml = round($o['margins_mm']['left']   * $MM_TO_PT) . 'pt';
 
-            // 5) CSS minimal (tanpa header/footer/custom CSS lain)
+            // 5) CSS (parties-table class only; sign block aman)
             $css = <<<CSS
 @page { size: {$o['page_size']} {$o['orientation']}; margin: {$mt} {$mr} {$mb} {$ml}; }
 body { font-family: {$fontStack}; font-size: {$fs}pt; line-height: 1.6; color:#000; margin:0; padding:0; }
@@ -398,12 +424,13 @@ h1,h2,h3,h4,h5,h6{ margin:0 0 10px; font-weight:bold; }
 p{ margin:0 0 8px; text-align:justify; }
 ul,ol{ margin:0 0 12px 22px; padding:0; }
 li{ margin-bottom: 4px; }
-table { width:100%; border-collapse:collapse; margin:0; }
-td,th{ border:1px solid #000; padding:6px 8px; text-align:left; }
-th{ font-weight:bold; background:#f5f5f5; }
+/* hanya untuk tabel parties */
+.parties-table { width:100%; border-collapse:collapse; margin:0; }
+.parties-table td,
+.parties-table th { border:1px solid #000; padding:6px 8px; text-align:left; }
+.parties-table th { font-weight:bold; background:#f5f5f5; }
 .ql-align-center{text-align:center;} .ql-align-right{text-align:right;}
 .ql-align-left{text-align:left;} .ql-align-justify{text-align:justify;}
-.preserve-space{ white-space:pre-wrap; tab-size:4; }
 strong,b{ font-weight:bold; } em,i{ font-style:italic; } u{ text-decoration:underline; }
 CSS;
 
@@ -419,15 +446,15 @@ HTML;
             $dompdf = Pdf::loadHTML($fullHtml)
                 ->setPaper(strtolower($o['page_size']), $o['orientation'])
                 ->setOptions([
-                    'isRemoteEnabled'     => true,
+                    'isRemoteEnabled'      => true,
                     'isHtml5ParserEnabled' => true,
-                    'isPhpEnabled'        => false,
+                    'isPhpEnabled'         => false,
                 ])
                 ->getDomPDF();
 
             $dompdf->render();
 
-            // 7) Nomor halaman: angka saja, di tepi kertas (di luar margin)
+            // 7) Nomor halaman opsional
             $showNums = filter_var($o['show_page_numbers'] ?? false, FILTER_VALIDATE_BOOLEAN);
             if ($showNums) {
                 $canvas = $dompdf->get_canvas();
@@ -435,36 +462,31 @@ HTML;
                 $h = $canvas->get_height();
 
                 $metrics = $dompdf->getFontMetrics();
-                $font = $metrics->get_font('helvetica', 'normal'); // aman & tersedia
-                $size = $fs; // samakan dengan body; bisa juga pakai 9–11
-
+                $font = $metrics->get_font('helvetica', 'normal');
+                $size = $fs;
                 $text = "{PAGE_NUM}";
 
-                // Lebar teks (kompatibel dengan berbagai versi dompdf)
                 $textWidth = method_exists($metrics, 'getTextWidth')
                     ? $metrics->getTextWidth($text, $font, $size)
                     : $metrics->get_text_width($text, $font, $size);
 
-                // 8 mm dari TEPI kertas
                 $padPt = 8 * $MM_TO_PT;
 
-                $hAlign = strtolower($o['page_number_h_align'] ?? 'right');   // left|center|right
-                $vAlign = strtolower($o['page_number_v_align'] ?? 'bottom');  // top|bottom
+                $hAlign = strtolower($o['page_number_h_align'] ?? 'right');
+                $vAlign = strtolower($o['page_number_v_align'] ?? 'bottom');
 
-                // Hitung X
                 if ($hAlign === 'left') {
                     $x = 0 + $padPt;
                 } elseif ($hAlign === 'center') {
                     $x = $w / 2;
-                } else { // right
+                } else {
                     $x = $w - $textWidth - $padPt;
                 }
 
-                // Hitung Y (ingat baseline text)
                 if ($vAlign === 'top') {
-                    $y = 0 + $padPt + $size; // sedikit turun dari tepi atas
-                } else { // bottom
-                    $y = $h - $padPt;       // di atas tepi bawah
+                    $y = 0 + $padPt + $size;
+                } else {
+                    $y = $h - $padPt;
                 }
 
                 $canvas->page_text($x, $y, $text, $font, $size, [0, 0, 0]);
@@ -476,7 +498,7 @@ HTML;
             $tmpFile = $tmpDir . '/draft_' . $draft->id . '_' . time() . '.pdf';
             file_put_contents($tmpFile, $dompdf->output());
 
-            // 9) Upload ke Cloudinary (dengan retry sederhana)
+            // 9) Upload ke Cloudinary
             try {
                 if (!empty($draft->file_path)) {
                     try {
