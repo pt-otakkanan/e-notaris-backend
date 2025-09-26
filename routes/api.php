@@ -4,6 +4,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
 use App\Http\Controllers\AuthController;
+use App\Http\Controllers\BlogController;
 use App\Http\Controllers\DeedController;
 use App\Http\Controllers\SignController;
 use App\Http\Controllers\UserController;
@@ -12,6 +13,7 @@ use App\Http\Controllers\TrackController;
 use App\Http\Controllers\ProductController;
 use App\Http\Controllers\ScheduleController;
 use App\Http\Controllers\TemplateController;
+use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\ClientDraftController;
 use App\Http\Controllers\RequirementController;
 use App\Http\Controllers\EditorUploadController;
@@ -84,6 +86,9 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/lookup/{code}', [TrackController::class, 'lookupByCode']);
         Route::post('/lookup',       [TrackController::class, 'lookupByCodePost']);
     });
+    Route::prefix('dashboard')->group(function () {
+        Route::get('/', [DashboardController::class, 'getData']);
+    });
 });
 
 /*
@@ -112,6 +117,15 @@ Route::prefix('admin')->middleware(['auth:sanctum'])->group(function () {
         Route::post('/update/{id}',     [TemplateController::class, 'update']);
         Route::delete('/{id}',          [TemplateController::class, 'destroy']);
         Route::get('/all/template',     [TemplateController::class, 'all']);
+    });
+
+    Route::prefix('blogs')->middleware('ability:admin')->group(function () {
+        Route::get('/',                 [BlogController::class, 'index']);
+        Route::get('/all/blog',         [BlogController::class, 'all']);
+        Route::get('/{id}',             [BlogController::class, 'show']);
+        Route::post('/',                [BlogController::class, 'store']);
+        Route::post('/update/{id}',     [BlogController::class, 'update']);
+        Route::delete('/{id}',          [BlogController::class, 'destroy']);
     });
 
     // Deed (admin & notaris)
@@ -181,7 +195,6 @@ Route::prefix('notaris')->middleware(['auth:sanctum'])->group(function () {
 
     // Activity (CRUD & listing)
     Route::prefix('activity')->middleware('ability:notaris')->group(function () {
-        Route::get('/',                        [NotarisActivityController::class, 'index']);
         Route::get('/user/approved',           [NotarisActivityController::class, 'getByUserApproved']);
         Route::get('/user/client',             [NotarisActivityController::class, 'getUsers']);
         Route::get('/user/remove/{userid}/{activityid}', [NotarisActivityController::class, 'removeUser']);
@@ -194,13 +207,16 @@ Route::prefix('notaris')->middleware(['auth:sanctum'])->group(function () {
         Route::middleware('checkverif')->group(function () {
             Route::post('/',               [NotarisActivityController::class, 'store']);
             Route::post('/update/{id}',    [NotarisActivityController::class, 'update']);
-            Route::delete('/{id}',         [NotarisActivityController::class, 'destroy']);
         });
+    });
+    Route::prefix('activity')->middleware('ability:admin,notaris')->group(function () {
+        Route::get('/',                        [NotarisActivityController::class, 'index']);
+        Route::delete('/{id}',         [NotarisActivityController::class, 'destroy']);
     });
 
     // Activity detail bisa diakses notaris & penghadap (verif)
     Route::prefix('activity')
-        ->middleware(['ability:notaris,penghadap', 'checkverif'])
+        ->middleware(['ability:admin,notaris,penghadap', 'checkverif'])
         ->group(function () {
             Route::get('/{id}', [NotarisActivityController::class, 'show']);
         });
