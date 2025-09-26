@@ -92,4 +92,12 @@ class User extends Authenticatable
     {
         return $this->hasMany(Activity::class, 'second_client_id');
     }
+
+    // app/Models/User.php
+    public function clientActivities()
+    {
+        return $this->belongsToMany(Activity::class, 'client_activity', 'user_id', 'activity_id')
+            ->withPivot(['status_approval', 'order'])
+            ->withTimestamps();
+    }
 }
