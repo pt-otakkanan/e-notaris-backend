@@ -29,12 +29,6 @@ class TrackController extends Controller
             'data'    => $track,
         ], 200);
     }
-
-    /**
-     * PATCH /tracks/{id}
-     * Body: salah satu/lebih dari field status_*
-     * Nilai yang diizinkan: pending|done|rejected (sesuai migration enum)
-     */
     public function update(Request $request, $id)
     {
         $track = Track::find($id);
@@ -177,10 +171,6 @@ class TrackController extends Controller
         ], 200);
     }
 
-    /**
-     * POST /track/lookup
-     * Body: { "tracking_code": "ACT-XXXX" }
-     */
     public function lookupByCodePost(Request $request)
     {
         $request->validate([

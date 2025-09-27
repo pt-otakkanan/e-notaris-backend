@@ -110,7 +110,7 @@ Route::prefix('admin')->middleware(['auth:sanctum'])->group(function () {
     });
 
     // Templates (by admin)
-    Route::prefix('templates')->middleware('ability:admin')->group(function () {
+    Route::prefix('templates')->middleware('ability:admin,notaris')->group(function () {
         Route::get('/',                 [TemplateController::class, 'index']);
         Route::get('/{id}',             [TemplateController::class, 'show']);
         Route::post('/',                [TemplateController::class, 'store']);
