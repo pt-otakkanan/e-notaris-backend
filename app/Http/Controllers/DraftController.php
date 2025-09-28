@@ -7,11 +7,8 @@ use App\Models\DraftDeed;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
-// Sesuaikan namespace Cloudinary yg kamu pakai:
-use Illuminate\Support\Facades\Storage;
-// App\Http\Controllers\DraftController.php
 use Illuminate\Support\Facades\Validator;
-use Barryvdh\DomPDF\Facade\Pdf; // pastikan facade aktif
+use Barryvdh\DomPDF\Facade\Pdf;
 use CloudinaryLabs\CloudinaryLaravel\Facades\Cloudinary;
 
 class DraftController extends Controller
@@ -33,7 +30,7 @@ class DraftController extends Controller
             ->select('draft_deeds.*');
 
         // Notaris hanya melihat draft di activity miliknya
-        if ($user->role_id !== 1) { // 1 = admin
+        if ((int) $user->role_id !== 1) { // 1 = admin
             $query->where('activities.user_notaris_id', $user->id);
         }
 
@@ -48,7 +45,7 @@ class DraftController extends Controller
 
         return response()->json([
             'success' => true,
-            'message' => 'Daftar draft berhasil diambil',
+            'message' => 'Daftar draft berhasil diambil.',
             'data'    => $drafts->items(),
             'meta'    => [
                 'current_page' => $drafts->currentPage(),
@@ -74,21 +71,21 @@ class DraftController extends Controller
         if (!$draft) {
             return response()->json([
                 'success' => false,
-                'message' => 'Draft tidak ditemukan',
+                'message' => 'Draft tidak ditemukan.',
                 'data'    => null,
             ], 404);
         }
 
-        if ($user->role_id !== 1 && $draft->activity?->user_notaris_id !== $user->id) {
+        if ((int) $user->role_id !== 1 && (int) ($draft->activity?->user_notaris_id) !== (int) $user->id) {
             return response()->json([
                 'success' => false,
-                'message' => 'Tidak berhak mengakses draft ini',
+                'message' => 'Anda tidak berhak mengakses draft ini.',
             ], 403);
         }
 
         return response()->json([
             'success' => true,
-            'message' => 'Detail draft berhasil diambil',
+            'message' => 'Detail draft berhasil diambil.',
             'data'    => $draft,
         ], 200);
     }
@@ -105,17 +102,35 @@ class DraftController extends Controller
     public function store(Request $request)
     {
         $validasi = Validator::make($request->all(), [
-            'activity_id'           => 'required|exists:activities,id',
+            'activity_id'           => 'required|integer|exists:activities,id',
             'custom_value_template' => 'nullable|string',
             'reading_schedule'      => 'nullable|date',
             'status_approval'       => 'sometimes|in:pending,approved,rejected',
             'file'                  => 'sometimes|file|mimes:pdf,doc,docx,jpg,jpeg,png,webp|max:10240',
+        ], [
+            'activity_id.required'  => 'Aktivitas wajib dipilih.',
+            'activity_id.integer'   => 'ID aktivitas harus berupa angka.',
+            'activity_id.exists'    => 'Aktivitas tidak ditemukan.',
+            'custom_value_template.string' => 'Template harus berupa teks.',
+            'reading_schedule.date' => 'Jadwal pembacaan tidak valid.',
+            'status_approval.in'    => 'Status hanya boleh: pending, approved, atau rejected.',
+            'file.file'             => 'Berkas tidak valid.',
+            'file.mimes'            => 'Format berkas tidak didukung. Gunakan: pdf, doc, docx, jpg, jpeg, png, atau webp.',
+            'file.max'              => 'Ukuran berkas maksimal 10 MB.',
+        ]);
+
+        $validasi->setAttributeNames([
+            'activity_id'           => 'Aktivitas',
+            'custom_value_template' => 'Template',
+            'reading_schedule'      => 'Jadwal Pembacaan',
+            'status_approval'       => 'Status',
+            'file'                  => 'Berkas',
         ]);
 
         if ($validasi->fails()) {
             return response()->json([
                 'success' => false,
-                'message' => 'Proses validasi gagal',
+                'message' => 'Proses validasi gagal.',
                 'data'    => $validasi->errors(),
             ], 422);
         }
@@ -123,10 +138,10 @@ class DraftController extends Controller
         $user     = $request->user();
         $activity = Activity::find($request->input('activity_id'));
         if (!$activity) {
-            return response()->json(['success' => false, 'message' => 'Aktivitas tidak ditemukan'], 404);
+            return response()->json(['success' => false, 'message' => 'Aktivitas tidak ditemukan.'], 404);
         }
-        if ($user->role_id !== 1 && $activity->user_notaris_id !== $user->id) {
-            return response()->json(['success' => false, 'message' => 'Tidak berhak menambahkan draft untuk aktivitas ini'], 403);
+        if ((int) $user->role_id !== 1 && (int) $activity->user_notaris_id !== (int) $user->id) {
+            return response()->json(['success' => false, 'message' => 'Anda tidak berhak menambahkan draft untuk aktivitas ini.'], 403);
         }
 
         $data = $validasi->validated();
@@ -138,7 +153,6 @@ class DraftController extends Controller
         if ($request->hasFile('file')) {
             $folder   = "enotaris/activities/{$activity->id}/drafts";
             $filename = 'draft_' . now()->format('YmdHis');
-            $publicId = "{$folder}/{$filename}";
 
             $upload = Cloudinary::upload(
                 $request->file('file')->getRealPath(),
@@ -151,7 +165,7 @@ class DraftController extends Controller
             );
 
             $fileUrl  = $upload->getSecurePath();
-            $filePath = $publicId; // simpan public_id untuk destroy
+            $filePath = "{$folder}/{$filename}"; // public_id untuk destroy
         }
 
         $draft = DraftDeed::create([
@@ -165,7 +179,7 @@ class DraftController extends Controller
 
         return response()->json([
             'success' => true,
-            'message' => 'Draft berhasil dibuat',
+            'message' => 'Draft berhasil dibuat.',
             'data'    => $draft->load('activity:id,name,tracking_code'),
         ], 201);
     }
@@ -179,15 +193,15 @@ class DraftController extends Controller
         if (!$draft) {
             return response()->json([
                 'success' => false,
-                'message' => 'Draft tidak ditemukan',
+                'message' => 'Draft tidak ditemukan.',
             ], 404);
         }
 
         $user = $request->user();
-        if ($user->role_id !== 1 && $draft->activity?->user_notaris_id !== $user->id) {
+        if ((int) $user->role_id !== 1 && (int) ($draft->activity?->user_notaris_id) !== (int) $user->id) {
             return response()->json([
                 'success' => false,
-                'message' => 'Tidak berhak mengubah draft ini',
+                'message' => 'Anda tidak berhak mengubah draft ini.',
             ], 403);
         }
 
@@ -197,12 +211,28 @@ class DraftController extends Controller
             'status_approval'       => 'sometimes|in:pending,approved,rejected',
             'file'                  => 'sometimes|file|mimes:pdf,doc,docx,jpg,jpeg,png,webp|max:10240',
             'clear_file'            => 'sometimes|boolean',
+        ], [
+            'custom_value_template.string' => 'Template harus berupa teks.',
+            'reading_schedule.date'        => 'Jadwal pembacaan tidak valid.',
+            'status_approval.in'           => 'Status hanya boleh: pending, approved, atau rejected.',
+            'file.file'                    => 'Berkas tidak valid.',
+            'file.mimes'                   => 'Format berkas tidak didukung. Gunakan: pdf, doc, docx, jpg, jpeg, png, atau webp.',
+            'file.max'                     => 'Ukuran berkas maksimal 10 MB.',
+            'clear_file.boolean'           => 'Nilai clear_file harus berupa true atau false.',
+        ]);
+
+        $validasi->setAttributeNames([
+            'custom_value_template' => 'Template',
+            'reading_schedule'      => 'Jadwal Pembacaan',
+            'status_approval'       => 'Status',
+            'file'                  => 'Berkas',
+            'clear_file'            => 'Hapus Berkas',
         ]);
 
         if ($validasi->fails()) {
             return response()->json([
                 'success' => false,
-                'message' => 'Proses validasi gagal',
+                'message' => 'Proses validasi gagal.',
                 'data'    => $validasi->errors(),
             ], 422);
         }
@@ -216,23 +246,37 @@ class DraftController extends Controller
             }
         }
 
-        // Handle file
+        // Hapus file lama jika diminta
         if (($data['clear_file'] ?? false) === true) {
             if (!empty($draft->file_path)) {
-                Cloudinary::destroy($draft->file_path);
+                try {
+                    Cloudinary::destroy($draft->file_path);
+                } catch (\Exception $e) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Gagal menghapus berkas lama dari penyimpanan.',
+                    ], 500);
+                }
             }
             $draft->file = null;
             $draft->file_path = null;
         }
 
+        // Upload file baru
         if ($request->hasFile('file')) {
             if (!empty($draft->file_path)) {
-                Cloudinary::destroy($draft->file_path);
+                try {
+                    Cloudinary::destroy($draft->file_path);
+                } catch (\Exception $e) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Gagal menghapus berkas lama dari penyimpanan.',
+                    ], 500);
+                }
             }
 
             $folder   = "enotaris/activities/{$draft->activity_id}/drafts";
             $filename = 'draft_' . now()->format('YmdHis');
-            $publicId = "{$folder}/{$filename}";
 
             $upload = Cloudinary::upload(
                 $request->file('file')->getRealPath(),
@@ -245,23 +289,22 @@ class DraftController extends Controller
             );
 
             $draft->file      = $upload->getSecurePath();
-            $draft->file_path = $publicId;
+            $draft->file_path = "{$folder}/{$filename}";
         }
 
         $draft->save();
 
-        // reset status approval semua klien ke pending
-        if ($draft->clientDrafts()->exists()) {
+        // Reset status approval semua klien ke pending (jika ada relasi clientDrafts)
+        if (method_exists($draft, 'clientDrafts') && $draft->clientDrafts()->exists()) {
             $draft->clientDrafts()->update(['status_approval' => 'pending']);
         }
 
         return response()->json([
             'success' => true,
-            'message' => 'Draft berhasil diperbarui',
+            'message' => 'Draft berhasil diperbarui.',
             'data'    => $draft->load('activity:id,name,tracking_code'),
         ], 200);
     }
-
 
     /**
      * DELETE /draft/{id}
@@ -273,29 +316,33 @@ class DraftController extends Controller
         if (!$draft) {
             return response()->json([
                 'success' => false,
-                'message' => 'Draft tidak ditemukan',
+                'message' => 'Draft tidak ditemukan.',
             ], 404);
         }
 
         $user = $request->user();
-        if ($user->role_id !== 1 && $draft->activity?->user_notaris_id !== $user->id) {
+        if ((int) $user->role_id !== 1 && (int) ($draft->activity?->user_notaris_id) !== (int) $user->id) {
             return response()->json([
                 'success' => false,
-                'message' => 'Tidak berhak menghapus draft ini',
+                'message' => 'Anda tidak berhak menghapus draft ini.',
             ], 403);
         }
 
         try {
             DB::transaction(function () use ($draft) {
                 if (!empty($draft->file_path)) {
-                    Cloudinary::destroy($draft->file_path);
+                    try {
+                        Cloudinary::destroy($draft->file_path);
+                    } catch (\Exception $e) {
+                        throw new \RuntimeException('Gagal menghapus berkas dari penyimpanan.');
+                    }
                 }
                 $draft->delete();
             });
 
             return response()->json([
                 'success' => true,
-                'message' => 'Draft berhasil dihapus',
+                'message' => 'Draft berhasil dihapus.',
                 'data'    => null,
             ], 200);
         } catch (\Throwable $e) {
@@ -306,18 +353,24 @@ class DraftController extends Controller
         }
     }
 
+    /**
+     * POST /draft/{id}/render-pdf
+     * Body (opsional):
+     * - html_rendered / html
+     * - pdf_options { page_size, orientation, margins_mm{top,right,bottom,left}, font_family, font_size_pt, show_page_numbers, page_number_h_align, page_number_v_align }
+     */
     public function renderPdf(Request $request, $id)
     {
         try {
             // 1) Ambil draft + otorisasi
             $draft = DraftDeed::with('activity')->find($id);
             if (!$draft) {
-                return response()->json(['success' => false, 'message' => 'Draft tidak ditemukan'], 404);
+                return response()->json(['success' => false, 'message' => 'Draft tidak ditemukan.'], 404);
             }
 
             $user = $request->user();
-            if ($user->role_id !== 1 && $draft->activity?->user_notaris_id !== $user->id) {
-                return response()->json(['success' => false, 'message' => 'Tidak berhak'], 403);
+            if ((int) $user->role_id !== 1 && (int) ($draft->activity?->user_notaris_id) !== (int) $user->id) {
+                return response()->json(['success' => false, 'message' => 'Anda tidak berhak.'], 403);
             }
 
             // 2) Ambil HTML FINAL dari request (prioritas: html_rendered → html → DB)
@@ -329,7 +382,7 @@ class DraftController extends Controller
                 $htmlRendered = (string) ($draft->custom_value_template ?? '');
             }
             if (!trim($htmlRendered)) {
-                return response()->json(['success' => false, 'message' => 'HTML kosong'], 422);
+                return response()->json(['success' => false, 'message' => 'HTML kosong.'], 422);
             }
 
             // ===== Helper: cari token yang belum terganti
@@ -347,11 +400,6 @@ class DraftController extends Controller
                 }
 
                 $tokens = array_values(array_unique($tokens));
-
-                // (opsional) whitelist jika ada token memang dibiarkan
-                // $whitelist = ['page_break'];
-                // $tokens = array_values(array_diff($tokens, $whitelist));
-
                 return $tokens;
             };
 
@@ -360,7 +408,7 @@ class DraftController extends Controller
             if (!empty($unreplaced)) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Ada variabel yang tidak sesuai: ' . implode(', ', $unreplaced),
+                    'message' => 'Ada variabel yang belum terganti: ' . implode(', ', $unreplaced),
                     'errors'  => ['unknown_tokens' => $unreplaced],
                     'data'    => ['unknown_tokens' => $unreplaced, 'count' => count($unreplaced)],
                 ], 422);
@@ -416,7 +464,7 @@ class DraftController extends Controller
             $mb = round($o['margins_mm']['bottom'] * $MM_TO_PT) . 'pt';
             $ml = round($o['margins_mm']['left']   * $MM_TO_PT) . 'pt';
 
-            // 5) CSS (parties-table class only; sign block aman)
+            // 5) CSS minimum (aman untuk Dompdf)
             $css = <<<CSS
 @page { size: {$o['page_size']} {$o['orientation']}; margin: {$mt} {$mr} {$mb} {$ml}; }
 body { font-family: {$fontStack}; font-size: {$fs}pt; line-height: 1.6; color:#000; margin:0; padding:0; }
@@ -442,7 +490,7 @@ CSS;
 </html>
 HTML;
 
-            // 6) Dompdf instance & render
+            // 6) Dompdf render
             $dompdf = Pdf::loadHTML($fullHtml)
                 ->setPaper(strtolower($o['page_size']), $o['orientation'])
                 ->setOptions([
@@ -498,7 +546,7 @@ HTML;
             $tmpFile = $tmpDir . '/draft_' . $draft->id . '_' . time() . '.pdf';
             file_put_contents($tmpFile, $dompdf->output());
 
-            // 9) Upload ke Cloudinary
+            // 9) Upload ke Cloudinary (dengan retry)
             try {
                 if (!empty($draft->file_path)) {
                     try {
@@ -525,7 +573,7 @@ HTML;
                         ]);
                         break;
                     } catch (\Exception $e) {
-                        Log::warning("Cloudinary upload attempt " . ($i + 1) . " failed: " . $e->getMessage());
+                        Log::warning("Cloudinary upload percobaan " . ($i + 1) . " gagal: " . $e->getMessage());
                         if ($i === $maxRetries - 1) throw $e;
                         sleep(pow(2, $i));
                     }
@@ -536,7 +584,7 @@ HTML;
                     $draft->file_path = $publicId;
                     $draft->save();
                 } else {
-                    throw new \Exception('Upload gagal setelah semua percobaan');
+                    throw new \Exception('Upload gagal setelah semua percobaan.');
                 }
             } finally {
                 if (file_exists($tmpFile)) @unlink($tmpFile);
@@ -545,7 +593,7 @@ HTML;
             // 10) Response
             return response()->json([
                 'success' => true,
-                'message' => 'PDF berhasil dibuat & diunggah',
+                'message' => 'PDF berhasil dibuat dan diunggah.',
                 'data'    => [
                     'id'         => $draft->id,
                     'file'       => $draft->file,
