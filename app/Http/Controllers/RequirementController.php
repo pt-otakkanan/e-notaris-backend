@@ -30,9 +30,9 @@ class RequirementController extends Controller
                 'activity_notaris_id' => $act->id,
                 'user_id'             => $uid,
                 'requirement_id'      => $req->id,
-                'requirement_name'    => $req->name,            // snapshot label
-                'is_file_snapshot'    => (bool)$req->is_file,    // snapshot tipe
-                // JANGAN isi value/file di upsert → biar tidak override data user
+                'requirement_name'    => $req->name,             // snapshot label
+                'is_file_snapshot'    => (bool) $req->is_file,    // snapshot tipe
+                // JANGAN isi value/file di upsert → agar tidak override data user
                 'created_at'          => $now,
                 'updated_at'          => $now,
             ];
@@ -58,8 +58,8 @@ class RequirementController extends Controller
     public function index(Request $request)
     {
         $q          = $request->query('search');
-        $activityId = $request->query('activity_id');   // ⬅️ filter baru
-        $perPage    = max(1, (int)($request->query('per_page', 10)));
+        $activityId = $request->query('activity_id');   // ⬅️ filter
+        $perPage    = max(1, (int) ($request->query('per_page', 10)));
 
         $query = Requirement::query()->with('activity:id,name');
 
@@ -75,7 +75,7 @@ class RequirementController extends Controller
 
         return response()->json([
             'success' => true,
-            'message' => 'Daftar persyaratan berhasil diambil',
+            'message' => 'Daftar persyaratan berhasil diambil.',
             'data'    => $requirements->items(),
             'meta'    => [
                 'current_page' => $requirements->currentPage(),
@@ -96,14 +96,14 @@ class RequirementController extends Controller
         if (!$requirement) {
             return response()->json([
                 'success' => false,
-                'message' => 'Persyaratan tidak ditemukan',
+                'message' => 'Persyaratan tidak ditemukan.',
                 'data'    => null
             ], 404);
         }
 
         return response()->json([
             'success' => true,
-            'message' => 'Detail persyaratan berhasil diambil',
+            'message' => 'Detail persyaratan berhasil diambil.',
             'data'    => $requirement
         ], 200);
     }
@@ -115,17 +115,30 @@ class RequirementController extends Controller
     public function store(Request $request)
     {
         $validasi = Validator::make($request->all(), [
-            'activity_id' => 'required|exists:activity,id',
+            'activity_id' => 'required|integer|exists:activity,id',
             'name'        => 'required|string|max:255',
             'is_file'     => 'required|boolean',
         ], [
-            'activity_id.required' => 'Activity wajib diisi.',
+            'activity_id.required' => 'Aktivitas wajib diisi.',
+            'activity_id.integer'  => 'ID aktivitas harus berupa angka.',
+            'activity_id.exists'   => 'Aktivitas tidak ditemukan.',
+            'name.required'        => 'Nama persyaratan wajib diisi.',
+            'name.string'          => 'Nama persyaratan harus berupa teks.',
+            'name.max'             => 'Nama persyaratan maksimal 255 karakter.',
+            'is_file.required'     => 'Tipe persyaratan wajib diisi.',
+            'is_file.boolean'      => 'Tipe persyaratan harus berupa true/false.',
+        ]);
+
+        $validasi->setAttributeNames([
+            'activity_id' => 'Aktivitas',
+            'name'        => 'Nama Persyaratan',
+            'is_file'     => 'Tipe Persyaratan',
         ]);
 
         if ($validasi->fails()) {
             return response()->json([
                 'success' => false,
-                'message' => 'Proses validasi gagal',
+                'message' => 'Proses validasi gagal.',
                 'data'    => $validasi->errors(),
             ], 422);
         }
@@ -139,7 +152,7 @@ class RequirementController extends Controller
 
         return response()->json([
             'success' => true,
-            'message' => 'Persyaratan berhasil dibuat',
+            'message' => 'Persyaratan berhasil dibuat.',
             'data'    => $req,
         ], 201);
     }
@@ -155,7 +168,7 @@ class RequirementController extends Controller
         if (!$req) {
             return response()->json([
                 'success' => false,
-                'message' => 'Persyaratan tidak ditemukan',
+                'message' => 'Persyaratan tidak ditemukan.',
                 'data'    => null
             ], 404);
         }
@@ -164,13 +177,24 @@ class RequirementController extends Controller
             'name'    => 'sometimes|required|string|max:255',
             'is_file' => 'sometimes|required|boolean',
             // jika ingin izinkan pindah activity:
-            // 'activity_id' => 'sometimes|required|exists:activity,id'
+            // 'activity_id' => 'sometimes|required|integer|exists:activities,id'
+        ], [
+            'name.required'    => 'Nama persyaratan wajib diisi.',
+            'name.string'      => 'Nama persyaratan harus berupa teks.',
+            'name.max'         => 'Nama persyaratan maksimal 255 karakter.',
+            'is_file.required' => 'Tipe persyaratan wajib diisi.',
+            'is_file.boolean'  => 'Tipe persyaratan harus berupa true/false.',
+        ]);
+
+        $validasi->setAttributeNames([
+            'name'    => 'Nama Persyaratan',
+            'is_file' => 'Tipe Persyaratan',
         ]);
 
         if ($validasi->fails()) {
             return response()->json([
                 'success' => false,
-                'message' => 'Proses validasi gagal',
+                'message' => 'Proses validasi gagal.',
                 'data'    => $validasi->errors(),
             ], 422);
         }
@@ -192,7 +216,7 @@ class RequirementController extends Controller
 
         return response()->json([
             'success' => true,
-            'message' => 'Persyaratan berhasil diperbarui',
+            'message' => 'Persyaratan berhasil diperbarui.',
             'data'    => $req
         ], 200);
     }
@@ -207,7 +231,7 @@ class RequirementController extends Controller
         if (!$req) {
             return response()->json([
                 'success' => false,
-                'message' => 'Persyaratan tidak ditemukan',
+                'message' => 'Persyaratan tidak ditemukan.',
                 'data'    => null
             ], 404);
         }
@@ -217,12 +241,13 @@ class RequirementController extends Controller
                 $q->whereNotNull('value')
                     ->orWhereNotNull('file')
                     ->orWhere('status_approval', 'approved');
-            })->count();
+            })
+            ->count();
 
         if ($usedCount > 0) {
             return response()->json([
                 'success' => false,
-                'message' => 'Tidak dapat menghapus: persyaratan sudah dipakai/diapprove.',
+                'message' => 'Tidak dapat menghapus: persyaratan sudah dipakai atau telah disetujui.',
                 'data'    => null
             ], 422);
         }
@@ -235,7 +260,7 @@ class RequirementController extends Controller
 
         return response()->json([
             'success' => true,
-            'message' => 'Persyaratan berhasil dihapus',
+            'message' => 'Persyaratan berhasil dihapus.',
             'data'    => null
         ], 200);
     }

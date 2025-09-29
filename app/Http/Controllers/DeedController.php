@@ -14,9 +14,8 @@ class DeedController extends Controller
     {
         $user    = $request->user();
         $q       = $request->query('search');
-        $perPage = max(1, (int)$request->query('per_page', 10));
+        $perPage = max(1, (int) $request->query('per_page', 10));
 
-        // ❌ HAPUS with('requirements')
         $query = $user->role_id === 1
             ? Deed::query()
             : Deed::where('user_notaris_id', $user->id);
@@ -32,7 +31,7 @@ class DeedController extends Controller
 
         return response()->json([
             'success' => true,
-            'message' => 'Daftar akta berhasil diambil',
+            'message' => 'Daftar akta berhasil diambil.',
             'data'    => $deeds->items(),
             'meta'    => [
                 'current_page' => $deeds->currentPage(),
@@ -46,20 +45,19 @@ class DeedController extends Controller
     // GET /deeds/{id}
     public function show($id)
     {
-        // ❌ HAPUS 'requirements' dari eager load
         $deed = Deed::with(['activities', 'mainValueDeeds'])->find($id);
 
         if (!$deed) {
             return response()->json([
                 'success' => false,
-                'message' => 'Akta tidak ditemukan',
+                'message' => 'Akta tidak ditemukan.',
                 'data'    => null
             ], 404);
         }
 
         return response()->json([
             'success' => true,
-            'message' => 'Detail akta berhasil diambil',
+            'message' => 'Detail akta berhasil diambil.',
             'data'    => $deed
         ], 200);
     }
@@ -70,12 +68,23 @@ class DeedController extends Controller
         $validasi = Validator::make($request->all(), [
             'name'        => 'required|string|max:255|unique:deeds,name',
             'description' => 'required|string|max:255',
+        ], [
+            'name.required'        => 'Nama akta wajib diisi.',
+            'name.unique'          => 'Nama akta sudah digunakan.',
+            'name.max'             => 'Nama akta maksimal 255 karakter.',
+            'description.required' => 'Deskripsi wajib diisi.',
+            'description.max'      => 'Deskripsi maksimal 255 karakter.',
+        ]);
+
+        $validasi->setAttributeNames([
+            'name' => 'Nama Akta',
+            'description' => 'Deskripsi',
         ]);
 
         if ($validasi->fails()) {
             return response()->json([
                 'success' => false,
-                'message' => 'Proses validasi gagal',
+                'message' => 'Proses validasi gagal.',
                 'data'    => $validasi->errors(),
             ], 422);
         }
@@ -87,7 +96,7 @@ class DeedController extends Controller
 
         return response()->json([
             'success' => true,
-            'message' => 'Akta berhasil dibuat',
+            'message' => 'Akta berhasil dibuat.',
             'data'    => $deed,
         ], 201);
     }
@@ -99,7 +108,7 @@ class DeedController extends Controller
         if (!$deed) {
             return response()->json([
                 'success' => false,
-                'message' => 'Akta tidak ditemukan',
+                'message' => 'Akta tidak ditemukan.',
                 'data'    => null
             ], 404);
         }
@@ -107,12 +116,23 @@ class DeedController extends Controller
         $validasi = Validator::make($request->all(), [
             'name'        => 'required|string|max:255|unique:deeds,name,' . $deed->id,
             'description' => 'required|string|max:255',
+        ], [
+            'name.required'        => 'Nama akta wajib diisi.',
+            'name.unique'          => 'Nama akta sudah digunakan.',
+            'name.max'             => 'Nama akta maksimal 255 karakter.',
+            'description.required' => 'Deskripsi wajib diisi.',
+            'description.max'      => 'Deskripsi maksimal 255 karakter.',
+        ]);
+
+        $validasi->setAttributeNames([
+            'name' => 'Nama Akta',
+            'description' => 'Deskripsi',
         ]);
 
         if ($validasi->fails()) {
             return response()->json([
                 'success' => false,
-                'message' => 'Proses validasi gagal',
+                'message' => 'Proses validasi gagal.',
                 'data'    => $validasi->errors(),
             ], 422);
         }
@@ -124,7 +144,7 @@ class DeedController extends Controller
 
         return response()->json([
             'success' => true,
-            'message' => 'Akta berhasil diperbarui',
+            'message' => 'Akta berhasil diperbarui.',
             'data'    => $deed
         ], 200);
     }
@@ -132,19 +152,17 @@ class DeedController extends Controller
     // DELETE /deeds/{id}
     public function destroy($id)
     {
-        // ❌ HAPUS eager 'requirements'
         $deed = Deed::with(['activities', 'mainValueDeeds'])->find($id);
         if (!$deed) {
             return response()->json([
                 'success' => false,
-                'message' => 'Akta tidak ditemukan',
+                'message' => 'Akta tidak ditemukan.',
                 'data'    => null
             ], 404);
         }
 
         try {
             DB::transaction(function () use ($deed) {
-                // ❌ JANGAN $deed->requirements()->delete();
                 $deed->mainValueDeeds()->delete();
                 $deed->activities()->delete();
                 $deed->delete();
@@ -152,7 +170,7 @@ class DeedController extends Controller
 
             return response()->json([
                 'success' => true,
-                'message' => 'Akta beserta relasinya berhasil dihapus',
+                'message' => 'Akta beserta relasinya berhasil dihapus.',
                 'data'    => null
             ], 200);
         } catch (\Throwable $e) {

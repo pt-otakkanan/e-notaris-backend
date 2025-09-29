@@ -83,16 +83,30 @@ class BlogController extends Controller
     // POST /blogs  (multipart/form-data; image optional)
     public function store(Request $request)
     {
-        $validasi = Validator::make($request->all(), [
-            'title'       => ['required', 'string', 'max:200'],
-            'description' => ['required', 'string'],
-            'image'       => ['sometimes', 'file', 'mimes:jpg,jpeg,png,webp', 'max:5120'],
-        ], [
-            'title.required'       => 'Judul blog wajib diisi.',
-            'description.required' => 'Deskripsi blog wajib diisi.',
-            'image.mimes'          => 'Format gambar harus jpg, jpeg, png, atau webp.',
-            'image.max'            => 'Ukuran gambar maksimal 5MB.',
-        ]);
+        $validasi = Validator::make(
+            $request->all(),
+            [
+                'title'       => ['required', 'string', 'max:200'],
+                'description' => ['required', 'string'],
+                'image'       => ['nullable', 'file', 'mimes:jpg,jpeg,png,webp', 'max:5120'],
+            ],
+            [
+                'title.required'         => 'Judul blog wajib diisi.',
+                'title.max'              => 'Judul maksimal 200 karakter.',
+                'description.required'   => 'Deskripsi blog wajib diisi.',
+
+                'image.file'             => 'File gambar tidak valid.',
+                'image.image'            => 'File harus berupa gambar.',
+                'image.mimes'            => 'Format gambar harus jpg, jpeg, png, atau webp.',
+                'image.max'              => 'Ukuran gambar maksimal 5MB.',
+            ],
+            // ===== Custom attribute (biar nama field tampil “gambar”, bukan “image”)
+            [
+                'title'       => 'judul',
+                'description' => 'deskripsi',
+                'image'       => 'gambar',
+            ]
+        );
 
         if ($validasi->fails()) {
             return response()->json([
