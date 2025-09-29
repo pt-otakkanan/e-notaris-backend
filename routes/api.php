@@ -16,6 +16,7 @@ use App\Http\Controllers\TemplateController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\ClientDraftController;
 use App\Http\Controllers\RequirementController;
+use App\Http\Controllers\CategoryBlogController;
 use App\Http\Controllers\EditorUploadController;
 use App\Http\Controllers\VerificationController;
 use App\Http\Controllers\MainValueDeedController;
@@ -117,6 +118,7 @@ Route::prefix('admin')->middleware(['auth:sanctum'])->group(function () {
         Route::post('/update/{id}',     [TemplateController::class, 'update']);
         Route::delete('/{id}',          [TemplateController::class, 'destroy']);
         Route::get('/all/template',     [TemplateController::class, 'all']);
+        Route::post('/import-docx', [TemplateController::class, 'importDocx']);
     });
 
     Route::prefix('blogs')->middleware('ability:admin')->group(function () {
@@ -126,6 +128,15 @@ Route::prefix('admin')->middleware(['auth:sanctum'])->group(function () {
         Route::post('/',                [BlogController::class, 'store']);
         Route::post('/update/{id}',     [BlogController::class, 'update']);
         Route::delete('/{id}',          [BlogController::class, 'destroy']);
+    });
+
+    Route::prefix('category-blogs')->middleware('ability:admin')->group(function () {
+        Route::get('/',             [CategoryBlogController::class, 'index']);
+        Route::get('/all',          [CategoryBlogController::class, 'all']);
+        Route::get('/{id}',         [CategoryBlogController::class, 'show']);
+        Route::post('/',            [CategoryBlogController::class, 'store']);
+        Route::post('/update/{id}', [CategoryBlogController::class, 'update']);
+        Route::delete('/{id}',      [CategoryBlogController::class, 'destroy']);
     });
 
     // Deed (admin & notaris)

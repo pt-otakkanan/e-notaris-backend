@@ -3,11 +3,65 @@
 namespace App\Http\Controllers;
 
 use App\Models\Template;
+use PhpOffice\PhpWord\IOFactory;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
 
 class TemplateController extends Controller
 {
+    public function importDocx(Request $request)
+    {
+        $valid = Validator::make($request->all(), [
+            'file' => ['required', 'file', 'mimetypes:application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'max:10240'], // 10MB
+        ], [
+            'file.required' => 'File .docx wajib diunggah.',
+            'file.mimetypes' => 'Format harus .docx.',
+            'file.max' => 'Ukuran maksimal 10MB.',
+        ]);
+
+        if ($valid->fails()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Validasi gagal',
+                'data'    => $valid->errors(),
+            ], 422);
+        }
+
+        try {
+            $file = $request->file('file');
+            $path = $file->store('tmp/docx', 'local');
+
+            $full = Storage::disk('local')->path($path);
+            $phpWord = IOFactory::load($full, 'Word2007');
+
+            // Tulis ke HTML (writer HTML PhpWord)
+            $writer = IOFactory::createWriter($phpWord, 'HTML');
+
+            // capture output ke string
+            ob_start();
+            $writer->save('php://output');
+            $html = ob_get_clean();
+
+            // (opsional) bersihkan file tmp
+            Storage::disk('local')->delete($path);
+
+            // (opsional) sanitize HTML ringan
+            // Kamu bisa tambahkan HTMLPurifier kalau perlu di sisi server.
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Konversi berhasil',
+                'data'    => ['html' => $html],
+            ], 200);
+        } catch (\Throwable $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Gagal mengonversi file: ' . $e->getMessage(),
+                'data'    => null,
+            ], 500);
+        }
+    }
     public function all(Request $request)
     {
         $min     = (bool) $request->query('min', false);
