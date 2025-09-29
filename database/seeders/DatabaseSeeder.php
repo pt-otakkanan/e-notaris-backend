@@ -2,11 +2,12 @@
 
 namespace Database\Seeders;
 
-use Illuminate\Database\Seeder;
-use Illuminate\Support\Facades\Hash;
 use App\Models\Role;
 use App\Models\User;
 use App\Models\Identity;
+use Illuminate\Database\Seeder;
+use Illuminate\Support\Facades\Hash;
+use Database\Seeders\TemplatesTableSeeder;
 
 class DatabaseSeeder extends Seeder
 {
@@ -169,6 +170,8 @@ class DatabaseSeeder extends Seeder
                     'file_photo_path'       => "seed/users/{$user->id}/identity/photo.jpg",
                 ]
             );
+            // --- Panggil seeder templates ---
+            $this->call(TemplastesTableSeeder::class);
         }
     }
 

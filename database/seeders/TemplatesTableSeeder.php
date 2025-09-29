@@ -1,0 +1,330 @@
+<?php
+
+namespace Database\Seeders;
+
+use Illuminate\Database\Seeder;
+use Illuminate\Support\Facades\DB;
+use Carbon\Carbon;
+
+class TemplatesTableSeeder extends Seeder
+{
+    /**
+     * Jalankan database seeder.
+     */
+    public function run(): void
+    {
+        DB::table('templates')->insert([
+            [
+                'id' => 1,
+                'name' => 'Perjanjian Sewa Menyewa',
+                'custom_value' => '<h2 class="ql-align-center">PERJANJIAN SEWA MENYEWA</h2><p class="ql-align-center">Nomor : {{reference_number}}</p><p>– Pada hari ini, {{today}}</p><p>– tanggal .............................................................</p><p>– Pukul .................................................................</p><p>– Berhadapan dengan saya, {{notaris_name}}, Notaris di {{schedule_place}}, dengan dihadiri oleh para saksi yang saya, Notaris, kenal dan akan disebutkan nama-namanya pada bahagian akhir akta ini:</p><p><strong>I. Tuan {{penghadap1_name}}</strong></p><p> ..............................................................</p><p> ..............................................................</p><p> ..............................................................</p><p><strong>II. Tuan {{penghadap2_name}}</strong></p><p> ..............................................................</p><p> ..............................................................</p><p> ..............................................................</p><p>– menurut keterangannya dalam hal ini bertindak dalam jabatannya selaku Presiden Direktur dari Perseroan Terbatas PT. .........., berkedudukan di Jakarta yang anggaran dasarnya beserta perubahannya telah mendapat persetujuan dari Menteri Kehakiman dan Hak Asasi Manusia berturut-turut:</p><p>..............................................................</p><p> ..............................................................</p><p> ..............................................................</p><p> ..............................................................</p><p>selanjutnya disebut: <strong>Pihak Kedua</strong> atau <strong>Penyewa</strong>.</p><p>– Para penghadap telah saya, Notaris, kenal.</p><p>– Para penghadap menerangkan terlebih dahulu:</p><p>– bahwa Pihak Pertama adalah pemilik dari bangunan Rumah Toko (Ruko) yang hendak disewakan kepada Pihak Kedua yang akan disebutkan di bawah ini dan Pihak Kedua menerangkan menyewa dari Pihak Pertama berupa:</p><p>– 1 (satu) unit bangunan Rumah Toko (Ruko) berlantai 3 (tiga) berikut turutannya, lantai keramik, dinding tembok, atap dak, aliran listrik sebesar 2.200 Watt, dilengkapi air dari jet pump, berdiri di atas sebidang tanah Sertifikat HGB Nomor: ............ seluas ...... m² (....................................), penerbitan sertifikat tanggal ..........................., tercantum atas nama .................. yang telah diuraikan dalam Gambar Situasi tanggal ............ nomor ............; Sertifikat tanah diterbitkan oleh Kantor Pertanahan Kabupaten Bekasi, terletak di Provinsi Jawa Barat, Kabupaten Bekasi, Kecamatan Cibitung, Desa Ganda Mekar, setempat dikenal sebagai Mega Mall MM.2100 Blok B Nomor 8.</p><p>– Berdasarkan keterangan-keterangan tersebut di atas, kedua belah pihak sepakat membuat perjanjian sewa-menyewa dengan syarat-syarat dan ketentuan-ketentuan sebagai berikut:</p><p><strong>----------------------- Pasal 1.</strong></p><p>Perjanjian sewa-menyewa ini berlangsung untuk jangka waktu 2 (dua) tahun terhitung sejak tanggal ............ sampai dengan tanggal ............</p><p>– Penyerahan Ruko akan dilakukan dalam keadaan kosong/tidak dihuni pada tanggal .................. dengan penyerahan semua kunci-kuncinya.</p><p><strong>----------------------- Pasal 2.</strong></p><p>– Uang kontrak sewa disepakati sebesar Rp. ............ (....................................) untuk 2 (dua) tahun masa sewa.</p><p>– Jumlah uang sewa sebesar Rp. ............ (....................................) tersebut dibayar oleh Pihak Kedua kepada Pihak Pertama pada saat penandatanganan akta ini atau pada tanggal .................. dengan kwitansi tersendiri, dan akta ini berlaku sebagai tanda penerimaan yang sah.</p><p><strong>----------------------- Pasal 3.</strong></p><p>– Pihak Kedua hanya akan menggunakan yang disewakan dalam akta ini sebagai tempat kegiatan perkantoran/usaha.</p><p>– Jika diperlukan, Pihak Pertama memberikan surat rekomendasi/keterangan yang diperlukan Pihak Kedua sepanjang tidak melanggar hukum.</p><p>– Pihak Kedua wajib mentaati peraturan-peraturan pihak yang berwajib dan menjamin Pihak Pertama tidak mendapat teguran/tuntutan apapun karenanya.</p><p><strong>----------------------- Pasal 4.</strong></p><p>– Hanya dengan persetujuan tertulis Pihak Pertama, Pihak Kedua boleh mengadakan perubahan/penambahan pada bangunan; seluruh biaya dan tanggung jawab pada Pihak Kedua, dan pada akhir masa kontrak menjadi hak Pihak Pertama.</p><p>– Penyerahan nyata dari yang disewakan oleh Pihak Pertama kepada Pihak Kedua dilakukan pada tanggal .................. dengan penyerahan semua kunci-kunci.</p><p><strong>----------------------- Pasal 5.</strong></p><p>Pihak Pertama memberi izin kepada Pihak Kedua untuk pemasangan/penambahan antara lain:</p><ol><li data-list="bullet"><span class="ql-ui" contenteditable="false"></span>Sekat-sekat pada ruangan;</li><li data-list="bullet"><span class="ql-ui" contenteditable="false"></span>Antena radio/CD;</li><li data-list="bullet"><span class="ql-ui" contenteditable="false"></span>Line telepon;</li><li data-list="bullet"><span class="ql-ui" contenteditable="false"></span>Air Conditioner (AC);</li><li data-list="bullet"><span class="ql-ui" contenteditable="false"></span>Penambahan daya listrik;</li><li data-list="bullet"><span class="ql-ui" contenteditable="false"></span>Saluran fax;</li><li data-list="bullet"><span class="ql-ui" contenteditable="false"></span>Internet;</li><li data-list="bullet"><span class="ql-ui" contenteditable="false"></span>TV Kabel;</li><li data-list="bullet"><span class="ql-ui" contenteditable="false"></span>Shower;</li><li data-list="bullet"><span class="ql-ui" contenteditable="false"></span>Penggantian W/C;</li><li data-list="bullet"><span class="ql-ui" contenteditable="false"></span>Katrol pengangkut barang lantai 1–3;</li><li data-list="bullet"><span class="ql-ui" contenteditable="false"></span>Peralatan keamanan;</li><li data-list="bullet"><span class="ql-ui" contenteditable="false"></span>Peralatan pendukung usaha (rak/mesin) tanpa merusak struktur bangunan.</li></ol><p>– Setelah masa kontrak berakhir, Pihak Kedua mengembalikan seperti keadaan semula dengan biaya Pihak Kedua.</p><p>– Pihak Kedua boleh mengganti kunci ruangan di dalam bangunan (kecuali pintu utama); pada akhir masa kontrak, kunci-kunci diserahkan ke Pihak Pertama.</p><p>– Pihak Pertama menjamin yang disewakan adalah miliknya dan bebas dari tuntutan pihak lain.</p><p>– Selama masa sewa, Pihak Pertama boleh memeriksa bangunan sewaktu-waktu.</p><p><strong>----------------------- Pasal 6.</strong></p><p>– Selama masa kontrak, pembayaran langganan listrik/air/telepon dan kewajiban lain terkait pemakaian dibayar Pihak Kedua hingga bulan terakhir dengan bukti pembayaran setiap bulan.</p><p>– Pihak Pertama membayar Pajak Bumi dan Bangunan (PBB) untuk objek sewa.</p><p><strong>----------------------- Pasal 7.</strong></p><p>– Pihak Kedua wajib memelihara yang disewa dengan baik; kerusakan karena kelalaian diperbaiki atas biaya Pihak Kedua.</p><p>– Apabila terjadi force majeure (kebakaran—kecuali kelalaian Pihak Kedua—sabotase, badai, banjir, gempa) sehingga objek musnah, para pihak dibebaskan dari tuntutan.</p><p><strong>----------------------- Pasal 8.</strong></p><p>– Pihak Pertama menjamin tidak ada tuntutan atau gangguan dari pihak lain atas yang disewa selama kontrak.</p><p><strong>----------------------- Pasal 9.</strong></p><p>Pihak Kedua, dengan persetujuan tertulis Pihak Pertama, boleh mengalihkan/memindahkan hak kontrak pada pihak lain, sebagian maupun seluruhnya, selama masa kontrak berlaku.</p><p><strong>----------------------- Pasal 10.</strong></p><p>Pihak Kedua wajib memberi pemberitahuan mengenai berakhir/akan diperpanjangnya kontrak kepada Pihak Pertama selambat-lambatnya 2 (dua) bulan sebelum berakhir.</p><p><strong>----------------------- Pasal 11.</strong></p><p>Pada saat berakhirnya kontrak dan tidak ada perpanjangan, Pihak Kedua menyerahkan kembali objek sewa dalam keadaan kosong, terpelihara baik, dengan semua kunci pada tanggal ..................</p><p>Apabila terlambat, Pihak Kedua dikenakan denda sebesar Rp. 27.500,- per hari selama 7 (tujuh) hari pertama; jika masih tidak diserahkan, Pihak Kedua memberi kuasa kepada Pihak Pertama (dengan hak substitusi) untuk melakukan pengosongan dengan bantuan pihak berwajib, atas biaya dan risiko Pihak Kedua.</p><p><strong>----------------------- Pasal 12.</strong></p><p>Selama masa kontrak belum berakhir, perjanjian ini tidak berakhir karena:</p><ol><li data-list="bullet"><span class="ql-ui" contenteditable="false"></span>Meninggalnya salah satu pihak;</li><li data-list="bullet"><span class="ql-ui" contenteditable="false"></span>Pihak Pertama mengalihkan hak milik atas objek sewa kepada pihak lain;</li><li data-list="bullet"><span class="ql-ui" contenteditable="false"></span>Dalam hal salah satu pihak meninggal dunia, ahli waris/penggantinya wajib melanjutkan perjanjian sampai berakhir; pemilik baru tunduk pada seluruh ketentuan akta ini.</li></ol><p><strong>----------------------- Pasal 13.</strong></p><p>Untuk menjamin pembayaran listrik, air, telepon, keamanan, dan kewajiban lain bulan terakhir, Pihak Kedua menyerahkan uang jaminan sebesar Rp. 2.000.000,- (dua juta rupiah) pada saat penyerahan kunci, dengan kwitansi tersendiri. Kelebihan dikembalikan Pihak Pertama; kekurangan ditambah oleh Pihak Kedua.</p><p><strong>----------------------- Pasal 14.</strong></p><p>Hal-hal yang belum cukup diatur akan dibicarakan kemudian secara musyawarah untuk mufakat.</p><p><strong>----------------------- Pasal 15.</strong></p><p>Pajak-pajak yang mungkin ada terkait akta ini dibayar oleh Pihak Kedua untuk dan atas nama Pihak Pertama.</p><p><strong>----------------------- Pasal 16.</strong></p><p>Biaya-biaya yang berkaitan dengan akta ini dibayar dan menjadi tanggungan Pihak Pertama.</p><p><strong>----------------------- Pasal 17.</strong></p><p>Kedua belah pihak memilih domisili hukum yang sah di Kepaniteraan Pengadilan Negeri Bekasi.</p><p><strong>DEMIKIAN AKTA INI</strong></p><p>– Dibuat dan diresmikan di Bekasi pada hari dan tanggal sebagaimana awal akta ini, dengan dihadiri oleh:</p><ol><li data-list="ordered"><span class="ql-ui" contenteditable="false"></span>Nyonya ........................................</li><li data-list="ordered"><span class="ql-ui" contenteditable="false"></span>Nyonya ........................................</li></ol><p>Keduanya Karyawan Kantor Notaris, sebagai saksi-saksi.</p><p>– Setelah akta ini dibacakan oleh saya, Notaris, kepada para penghadap dan para saksi, maka segera ditandatangani oleh para penghadap, para saksi, dan saya, Notaris.</p>',
+                'created_at' => Carbon::parse('2025-09-10 10:22:38'),
+                'updated_at' => Carbon::parse('2025-09-28 04:39:11'),
+            ],
+            [
+                'id' => 2,
+                'name' => 'Hak Waris',
+                'custom_value' => '<div class="ql-align-center">
+  <h2 style="margin:0; font-weight:700;">KETERANGAN HAK WARIS</h2>
+  <div style="margin-top:4px;">Nomor: {{reference_number}}</div>
+</div>
+
+<p class="ql-align-justify">
+  Pada hari ini, hari {{day_name}}, tanggal {{date_long}}, pukul {{time_wib}} WIB ({{time_wib_words}} Waktu Indonesia bagian Barat),
+  menghadap di hadapan saya, {{notary_name}}, Sarjana Hukum, Notaris di {{city}}, dengan dihadiri oleh saksi-saksi yang saya,
+  Notaris, kenal dan akan disebut pada bagian akhir akta ini.
+</p>
+
+<h3>I. PENGHADAP PERTAMA</h3>
+<p class="ql-align-justify no-page-break">
+  Nyonya {{party1_fullname}} {{party1_alias_opt}}, {{party1_job}}, bertempat tinggal di {{party1_address_full}};
+  Kartu Tanda Penduduk Nomor: {{party1_ktp}}.
+</p>
+
+<h3>II. PENGHADAP KEDUA</h3>
+<p class="ql-align-justify">
+  Nyonya {{party2_fullname}} {{party2_alias_opt}}, {{party2_job}}, bertempat tinggal di {{party2_address_full}};
+  Kartu Tanda Penduduk Nomor: {{party2_ktp}}.
+</p>
+
+<p class="ql-align-justify">
+  Para penghadap tersebut telah dikenal oleh saya, Notaris.
+</p>
+
+<div class="page-break-after"></div>
+
+<h3>KETERANGAN PARA PENGHADAP</h3>
+
+<p class="ql-align-justify">
+  Bahwa almarhum Tuan {{pewaris_name}} {{pewaris_alias_opt}}, Warganegara Indonesia, telah meninggal dunia di {{pewaris_death_city}},
+  pada tanggal {{pewaris_death_date_long}} ({{pewaris_death_date_num}}), demikian seperti ternyata dari Akta Kematian tertanggal
+  {{akta_kematian_date_long}} ({{akta_kematian_date_num}}) Nomor {{akta_kematian_number}} yang dikeluarkan oleh
+  {{akta_kematian_issuer}}; akta mana aslinya diperlihatkan kepada saya, Notaris.
+</p>
+
+<p class="ql-align-justify">
+  Bahwa almarhum Tuan {{pewaris_name_short}} {{pewaris_alias_opt}} selanjutnya akan disebut juga “pewaris”, menurut keterangan para
+  penghadap telah kawin sah dengan Nyonya {{spouse_fullname}} {{spouse_alias_opt}}, demikian berdasarkan Akta Perkawinan/Golongan
+  Tionghoa tanggal {{akta_kawin_date_long}} ({{akta_kawin_date_num}}) Nomor {{akta_kawin_number}} yang dikeluarkan oleh
+  {{akta_kawin_issuer}}; akta mana aslinya diperlihatkan kepada saya, Notaris.
+</p>
+
+<p class="ql-align-justify">
+  Bahwa dari perkawinan tersebut telah dilahirkan {{children_count_words}} ({{children_count_num}}) orang anak, yaitu:
+</p>
+
+<ol class="ql-align-justify" style="padding-left:24px;">
+  <li class="keep-together">
+    Penghadap Nyonya {{child1_now_name}}, dahulu bernama {{child1_old_name_opt}}, disebut juga {{child1_alias_opt}},
+    yang dilahirkan pada tanggal {{child1_birth_date_long}} ({{child1_birth_date_num}}) di {{child1_birth_city}},
+    berdasarkan Akta Kelahiran tanggal {{child1_akta_date_long}} ({{child1_akta_date_num}}) Nomor {{child1_akta_number}}
+    yang dikeluarkan oleh {{child1_akta_issuer}}; aslinya diperlihatkan kepada saya, Notaris.
+  </li>
+  <li class="keep-together">
+    Nyonya {{child2_now_name}}, yang dilahirkan di {{child2_birth_city}}, pada tanggal {{child2_birth_date_long}} ({{child2_birth_date_num}}),
+    berdasarkan Akta Kelahiran tanggal {{child2_akta_date_long}} ({{child2_akta_date_num}}) Nomor {{child2_akta_number}}
+    yang dikeluarkan oleh {{child2_akta_issuer}}; aslinya diperlihatkan kepada saya, Notaris.
+  </li>
+  <li class="keep-together">
+    Nona {{child3_now_name}}, disebut juga {{child3_alias_opt}}, sekarang bernama {{child3_current_name_opt}},
+    dilahirkan di {{child3_birth_city}} pada tanggal {{child3_birth_date_long}} ({{child3_birth_date_num}}),
+    berdasarkan Akta Kelahiran tanggal {{child3_akta_date_long}} ({{child3_akta_date_num}}) Nomor {{child3_akta_number}}
+    yang dikeluarkan oleh {{child3_akta_issuer}}; aslinya diperlihatkan kepada saya, Notaris.
+  </li>
+  <li class="keep-together">
+    Tuan {{child4_now_name}}, dilahirkan pada tanggal {{child4_birth_date_long}} ({{child4_birth_date_num}}),
+    berdasarkan Akta Kelahiran tanggal {{child4_akta_date_long}} ({{child4_akta_date_num}}) Nomor {{child4_akta_number}}
+    yang dikeluarkan oleh {{child4_akta_issuer}}; aslinya diperlihatkan kepada saya, Notaris.
+  </li>
+  <li class="keep-together">
+    Tuan/Nona {{child5_now_name}}, dilahirkan di {{child5_birth_city}} pada tanggal {{child5_birth_date_long}} ({{child5_birth_date_num}}),
+    berdasarkan Akta Kelahiran tanggal {{child5_akta_date_long}} ({{child5_akta_date_num}}) Nomor {{child5_akta_number}}
+    yang dikeluarkan oleh {{child5_akta_issuer}}; aslinya diperlihatkan kepada saya, Notaris.
+  </li>
+</ol>
+
+<p class="ql-align-justify">
+  Bahwa “pewaris” tidak meninggalkan turunan atau saudara lain selain dari para penghadap dan {{child2_now_name}},
+  {{child3_now_name}} {{child3_current_name_opt}}, {{child4_now_name}}, dan {{child5_now_name}} tersebut.
+</p>
+
+<p class="ql-align-justify">
+  Bahwa menurut surat dari {{no_will_issuer}} tanggal {{no_will_date_long}} ({{no_will_date_num}}) Nomor {{no_will_number}},
+  “pewaris” tidak meninggalkan surat wasiat.
+</p>
+
+<div class="page-break-after"></div>
+
+<h3>PERNYATAAN</h3>
+<p class="ql-align-justify">
+  Para penghadap tersebut di atas selanjutnya dengan ini menerangkan:
+</p>
+<ul class="ql-align-justify" style="padding-left:24px;">
+  <li>Bahwa para penghadap mengetahui dan dapat membenarkan segala sesuatu yang diuraikan di atas;</li>
+  <li>Bahwa para penghadap bersedia jika perlu memperkuat segala sesuatu yang diuraikan di atas dengan sumpah.</li>
+</ul>
+
+<p class="ql-align-justify">
+  Maka sekarang berdasarkan keterangan-keterangan tersebut di atas dan surat-surat yang diperlihatkan kepada saya, Notaris, serta
+  berdasarkan hukum yang berlaku bagi para penghadap dan {{child2_now_name}}, {{child3_now_name}} {{child3_current_name_opt}},
+  {{child4_now_name}}, dan {{child5_now_name}}, maka saya, Notaris, menerangkan dalam akta ini:
+</p>
+
+<h3>PEMBAGIAN HAK ATAS HARTA PENINGGALAN</h3>
+<ol class="ql-align-justify" style="padding-left:24px;">
+  <li>Nyonya {{spouse_fullname}} mendapat {{portion_spouse}} bagian.</li>
+  <li>Nyonya {{party2_fullname_short}} {{party2_alias_opt}} mendapat {{portion_child2}} bagian.</li>
+  <li>Nyonya {{child2_now_name}} mendapat {{portion_childB}} bagian.</li>
+  <li>Nona {{child3_now_name}} {{child3_alias_opt}} {{child3_current_name_opt}} mendapat {{portion_childC}} bagian.</li>
+  <li>Tuan {{child4_now_name}} mendapat {{portion_childD}} bagian.</li>
+  <li>Nona/Tuan {{child5_now_name}} mendapat {{portion_childE}} bagian.</li>
+</ol>
+
+<p class="ql-align-justify">
+  Bahwa para penghadap dan {{child2_now_name}}, {{child3_now_name}} {{child3_current_name_opt}}, {{child4_now_name}}, dan {{child5_now_name}},
+  merupakan para ahli waris tersendiri dari “pewaris” dengan mengecualikan siapapun juga, serta berhak untuk menuntut dan menerima
+  seluruh barang-barang dan harta kekayaan yang termasuk harta peninggalan “pewaris”. Selanjutnya, mereka berhak memberi
+  tanda terima untuk segala penerimaan harta kekayaan dan barang.
+</p>
+
+<p class="ql-align-justify">
+  Dari segala sesuatu yang tersebut di atas ini dengan segala akibat-akibatnya, para penghadap telah memilih tempat kediaman
+  hukum yang sah dan tidak berubah di Kantor Panitera Pengadilan Negeri {{pengadilan_negeri_kota}}.
+</p>
+
+<div class="page-break-after"></div>
+
+<h3>PENUTUP</h3>
+<p class="ql-align-justify">
+  Demikianlah akta ini, dibuat dengan dihadiri oleh Tuan {{witness1_name}} dan Tuan {{witness2_name}}, kedua-duanya Pegawai
+  Kantor Notaris, bertempat tinggal di {{city}}, sebagai saksi-saksi.
+</p>
+<p class="ql-align-justify">
+  Segera setelah akta ini dibacakan oleh saya, Notaris, kepada para penghadap dan para saksi, maka ditandatangani oleh para
+  penghadap, para saksi, dan saya, Notaris.
+</p>
+<p class="ql-align-justify">
+  Dilangsungkan dengan tanpa perubahan. Dilangsungkan dan diresmikan sebagai minuta di {{city}}, pada hari, tanggal, dan tahun seperti
+  disebut pada awal. Minuta akta ini telah ditandatangani dengan sempurna. Diberikan sebagai salinan yang sama bunyinya.
+</p>
+
+<p class="ql-align-right" style="margin-top:32px;">
+  {{city}}, {{date_long}}<br/>
+  {{notary_name}}<br/>
+  Notaris di {{city}}
+</p>s',
+                'created_at' => Carbon::parse('2025-09-09 17:00:00'),
+                'updated_at' => null,
+            ],
+            [
+                'id' => 3,
+                'name' => 'Perseroan Komanditer',
+                'custom_value' => '<div style="text-align:center;margin-bottom:8px">
+  <h2 style="margin:0">AKTA PENDIRIAN PERSEROAN KOMANDITER</h2>
+  <div style="font-size:12px">Nomor : {{reference_number}}</div>
+</div>
+
+<p>&ndash; Pada hari ini, {{today}}</p>
+<p>&ndash; tanggal .............................................................</p>
+<p>&ndash; Pukul .................................................................</p>
+
+<p>
+&ndash; Berhadapan dengan saya, {{notaris_name}}, Notaris di {{schedule_place}},
+dengan dihadiri oleh saksi-saksi yang saya, Notaris, kenal dan akan disebutkan pada bagian akhir akta ini:
+</p>
+
+<p><b>I. Tuan {{penghadap1_name}}</b><br/>
+{{penghadap1_identitas_line1}}<br/>
+{{penghadap1_identitas_line2}}<br/>
+{{penghadap1_identitas_line3}}
+</p>
+
+<p><b>II. Nyonya {{penghadap2_name}}</b><br/>
+{{penghadap2_identitas_line1}}<br/>
+{{penghadap2_identitas_line2}}<br/>
+{{penghadap2_identitas_line3}}
+</p>
+
+<p><b>III. Nyonya/Tuan {{penghadap3_name}}</b><br/>
+{{penghadap3_identitas_line1}}<br/>
+{{penghadap3_identitas_line2}}<br/>
+{{penghadap3_identitas_line3}}
+</p>
+
+<p>&ndash; Para penghadap telah saya, Notaris, kenal.</p>
+
+<p>
+&ndash; Para penghadap menerangkan dengan akta ini telah saling setuju dan semufakat untuk mendirikan suatu
+Perseroan Komanditer (Commanditaire Vennootschap) dengan Anggaran Dasar sebagai berikut:
+</p>
+
+<div class="page-break-after"></div>
+
+<p style="text-align:center"><b>NAMA DAN TEMPAT KEDUDUKAN<br/>Pasal 1</b></p>
+<ol style="margin-left:18px">
+  <li>Perseroan ini bernama Perseroan Komanditer: <b>{{cv_name_upper}}</b> (selanjutnya disebut “Perseroan”).</li>
+  <li>Perseroan berkedudukan di {{domisili_kota}}, dengan cabang/perwakilan di tempat lain yang dianggap perlu oleh (para) Pesero Pengurus.</li>
+</ol>
+
+<p style="text-align:center"><b>WAKTU<br/>Pasal 2</b></p>
+<p>&ndash; Perseroan didirikan untuk waktu yang tidak ditentukan dan mulai berlaku sejak akta ini ditandatangani.</p>
+
+<p style="text-align:center"><b>MAKSUD DAN TUJUAN<br/>Pasal 3</b></p>
+<p>Maksud dan tujuan Perseroan sebagai berikut:</p>
+<ol style="margin-left:18px">
+  <li>Distribusi/supplier/leveransir/grosir/komisioner/keagenan berbagai barang (kecuali keagenan perjalanan);</li>
+  <li>Perdagangan umum (impor, ekspor, lokal, antarpulau) sendiri maupun komisi;</li>
+  <li>Industri (konveksi/garment, butik, alat rumah tangga, kerajinan, souvenir, kayu, besi);</li>
+  <li>Jasa: perawatan/perbaikan elektrikal-mekanikal-teknikal & komputer; warnet/wartel/pos; cleaning service; boga; pengiriman barang;</li>
+  <li>Kontraktor/biro bangunan (gedung, perumahan, jalan, jembatan, irigasi), pemasangan aluminium/gypsum/kaca/furnitur & instalasi listrik/air/gas/telekomunikasi;</li>
+  <li>Pengadaan alat & kebutuhan kantor; pertamanan/landscaping; interior & eksterior; periklanan & reklame; percetakan/penjilidan/pengepakan;</li>
+  <li>Pengangkutan darat; perbengkelan; perkebunan, kehutanan, pertanian, peternakan, perikanan;</li>
+  <li>Segala kegiatan lain yang menunjang tujuan Perseroan sepanjang peraturan perundang-undangan.</li>
+</ol>
+<p>&ndash; Perseroan dapat mendirikan/ikut mendirikan badan lain yang sejenis di dalam/luar negeri sesuai peraturan.</p>
+
+<div class="page-break-after"></div>
+
+<p style="text-align:center"><b>MODAL<br/>Pasal 4</b></p>
+<ol style="margin-left:18px">
+  <li>Modal Perseroan tidak ditentukan besarnya; akan ternyata pada buku Perseroan, termasuk porsi tiap pesero.</li>
+  <li>Setoran uang dan/atau inbreng dicatat pada perhitungan modal masing-masing dan diberi tanda bukti yang ditandatangani para pesero.</li>
+  <li>(Para) Pesero Pengurus juga mencurahkan tenaga, pikiran, dan keahliannya untuk kepentingan Perseroan.</li>
+</ol>
+
+<p style="text-align:center"><b>PENGURUSAN & TANGGUNG JAWAB — (PARA) PESERO PENGURUS<br/>Pasal 5</b></p>
+<ol style="margin-left:18px">
+  <li>Tuan {{pesero_pengurus_name}} adalah Pesero Pengurus bertanggung jawab penuh; Nyonya/Tuan {{pesero_komanditer1_name}} dan {{pesero_komanditer2_name}} adalah Pesero Komanditer yang bertanggung jawab sampai modal yang dimasukkan.</li>
+  <li>
+    Tuan {{direktur_name}} selaku Direktur (atau wakil/yang ditunjuk bila berhalangan) mewakili dan mengikat Perseroan, namun untuk:
+    <ol style="margin-left:18px">
+      <li>Perolehan/pelepasan/pemindahan hak atas benda tetap;</li>
+      <li>Meminjam/meminjamkan uang (kecuali penarikan dana Perseroan di bank/tempat lain);</li>
+      <li>Menggadaikan/membebani harta Perseroan;</li>
+      <li>Mengikat Perseroan sebagai penjamin;</li>
+      <li>Mengangkat/mencabut kuasa;</li>
+    </ol>
+    &ndash; harus dengan persetujuan lebih dahulu/ turut ditandatangani Pesero Komanditer.
+  </li>
+  <li>(Para) Pesero Pengurus memegang buku-buku, uang, dan hal-hal lain usaha Perseroan; berwenang mengangkat/memberhentikan karyawan & menetapkan gaji.</li>
+</ol>
+
+<p style="text-align:center"><b>WEWENANG (PARA) PESERO KOMANDITER<br/>Pasal 6</b></p>
+<ol style="margin-left:18px">
+  <li>Berwenang memasuki aset Perseroan (kantor/gedung/bangunan) dan memeriksa buku-buku, uang, dan keadaan usaha.</li>
+  <li>(Para) Pesero Pengurus wajib memberi keterangan yang diminta.</li>
+</ol>
+
+<p style="text-align:center"><b>PENGUNDURAN DIRI / MENINGGAL DUNIA / PAILIT<br/>Pasal 7–10</b></p>
+<p>
+&ndash; Ketentuan pengunduran diri (pemberitahuan ≥ 3 bulan), kelanjutan usaha bila pesero meninggal (dengan kuasa ahli waris ≤ 3 bulan), status keluar bila pailit/surseance/pengampuan, serta pembayaran bagian pesero yang keluar menurut neraca terakhir (≤ 3 bulan, tanpa bunga) dan hak pesero tersisa untuk melanjutkan usaha dengan sisa aktiva-pasiva dan tetap memakai nama Perseroan.
+</p>
+
+<div class="page-break-after"></div>
+
+<p style="text-align:center"><b>PENUTUPAN BUKU & NERACA<br/>Pasal 11</b></p>
+<ol style="margin-left:18px">
+  <li>Setiap akhir Desember buku ditutup; paling lambat akhir Maret dibuat neraca & laba-rugi. Pertama kali ditutup: {{first_closing_date_long}} ({{first_closing_date_num}}).</li>
+  <li>Dokumen disimpan di kantor Perseroan; dapat dilihat (Para) Pesero Komanditer 14 hari sejak dibuat.</li>
+  <li>Jika tidak ada keberatan dalam 14 hari, dianggap sah dan semua pesero menandatangani (acquit et decharge kepada (Para) Pesero Pengurus).</li>
+  <li>Bila tidak mufakat, dapat minta hakim menunjuk 3 arbiter; para pesero tunduk pada putusan para arbiter.</li>
+</ol>
+
+<p style="text-align:center"><b>KEUNTUNGAN (Pasal 12) — KERUGIAN (Pasal 13) — DANA CADANGAN (Pasal 14)</b></p>
+<p>
+&ndash; Keuntungan dibagi sesuai perbandingan modal; dibayarkan ≤ 1 bulan setelah pengesahan neraca/laba-rugi.
+Kerugian ditanggung sesuai perbandingan; Pesero Komanditer hanya sampai modal setorannya. Dana cadangan dapat disisihkan/ digunakan sebagai modal kerja sesuai kesepakatan; hasil/rugi diperhitungkan pada laba-rugi.
+</p>
+
+<p style="text-align:center"><b>PENGALIHAN BAGIAN (Pasal 15) — HAL-HAL LAIN (Pasal 16) — DOMISILI (Pasal 17)</b></p>
+<p>
+&ndash; Pengalihan/pembebanan bagian pesero harus dengan persetujuan pesero lain. Hal yang belum cukup diatur diputuskan musyawarah.
+Para pesero memilih domisili di Kepaniteraan Pengadilan Negeri {{domisili_kota}}.
+</p>
+
+<div class="page-break-after"></div>
+
+<p><b>AKTA INI</b></p>
+<p>&ndash; Dibuat sebagai minuta dan diresmikan di {{schedule_place}} pada hari dan tanggal seperti pada awal akta ini, dengan saksi-saksi:</p>
+<ol style="margin-left:18px">
+  <li>{{saksi1_name}}, {{saksi1_identitas_desc}}</li>
+  <li>{{saksi2_name}}, {{saksi2_identitas_desc}}</li>
+</ol>
+<p>Keduanya Karyawan Kantor Notaris, sebagai saksi-saksi.</p>
+<p>&ndash; Setelah akta ini dibacakan oleh saya, Notaris, kepada para penghadap dan para saksi, maka segera ditandatangani oleh para penghadap, para saksi, dan saya, Notaris.</p>
+
+<hr style="margin:24px 0;border:0;border-top:1px solid #000"/>
+',
+                'created_at' => Carbon::parse('2025-09-09 17:00:00'),
+                'updated_at' => null,
+            ],
+            [
+                'id' => 6,
+                'name' => 'Pendirian Ruangan',
+                'custom_value' => '<p>Tes aja</p><p><br></p><p><img src="https://res.cloudinary.com/dr1qyzdld/image/upload/v1758606075/enotaris/users/1/editor/20250923/9536273c-c8fa-4ab4-914b-829770ac8f84.jpg" width="276" style="cursor: nwse-resize;"></p>',
+                'created_at' => Carbon::parse('2025-09-22 22:47:56'),
+                'updated_at' => Carbon::parse('2025-09-22 22:48:24'),
+            ],
+        ]);
+    }
+}
