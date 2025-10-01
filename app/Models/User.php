@@ -100,4 +100,15 @@ class User extends Authenticatable
             ->withPivot(['status_approval', 'order'])
             ->withTimestamps();
     }
+
+    // app/Models/User.php (tambahkan)
+    public function isAdmin(): bool
+    {
+        return (int) $this->role_id === 1;
+    }
+
+    public function isNotaris(): bool
+    {
+        return (int) $this->role_id === 3;
+    }
 }
