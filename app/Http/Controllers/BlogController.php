@@ -43,7 +43,10 @@ class BlogController extends Controller
         $catId     = $request->query('category_blog_id');
         $withCats  = $this->shouldWithCategories($request);
 
-        $query = Blog::query();
+        // ⬅️ Batasi kolom agar description tidak ikut di response
+        $columns = ['id', 'user_id', 'image', 'image_path', 'title', 'created_at', 'updated_at'];
+
+        $query = Blog::select($columns);
 
         if ($userId) {
             $query->where('user_id', (int) $userId);
@@ -52,7 +55,7 @@ class BlogController extends Controller
         if ($q) {
             $query->where(function ($sub) use ($q) {
                 $sub->where('title', 'like', "%{$q}%")
-                    ->orWhere('description', 'like', "%{$q}%");
+                    ->orWhere('description', 'like', "%{$q}%"); // masih bisa WHERE meski kolom tidak di-select
             });
         }
 
