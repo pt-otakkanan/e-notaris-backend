@@ -10,7 +10,9 @@ use App\Http\Controllers\SignController;
 use App\Http\Controllers\UserController;
 use App\Http\Controllers\DraftController;
 use App\Http\Controllers\TrackController;
+use App\Http\Controllers\PartnerController;
 use App\Http\Controllers\ProductController;
+use App\Http\Controllers\SettingController;
 use App\Http\Controllers\ScheduleController;
 use App\Http\Controllers\TemplateController;
 use App\Http\Controllers\DashboardController;
@@ -119,6 +121,7 @@ Route::prefix('admin')->middleware(['auth:sanctum'])->group(function () {
         Route::delete('/{id}',          [TemplateController::class, 'destroy']);
         Route::get('/all/template',     [TemplateController::class, 'all']);
         Route::post('/import-docx', [TemplateController::class, 'importDocx']);
+        Route::post('/{id}/render-pdf', [TemplateController::class, 'renderPdf']);
     });
 
     Route::prefix('blogs')->middleware('ability:admin')->group(function () {
@@ -128,6 +131,20 @@ Route::prefix('admin')->middleware(['auth:sanctum'])->group(function () {
         Route::post('/',                [BlogController::class, 'store']);
         Route::post('/update/{id}',     [BlogController::class, 'update']);
         Route::delete('/{id}',          [BlogController::class, 'destroy']);
+    });
+
+    Route::prefix('partners')->middleware('ability:admin')->group(function () {
+        Route::get('/',                 [PartnerController::class, 'index']);
+        Route::get('/all/partner',      [PartnerController::class, 'all']);
+        Route::get('/{id}',             [PartnerController::class, 'show']);
+        Route::post('/',                [PartnerController::class, 'store']);
+        Route::post('/update/{id}',     [PartnerController::class, 'update']);
+        Route::delete('/{id}',          [PartnerController::class, 'destroy']);
+    });
+
+    Route::prefix('settings')->middleware('ability:admin')->group(function () {
+        Route::get('/',        [SettingController::class, 'get']);
+        Route::post('/',       [SettingController::class, 'upsert']);
     });
 
     Route::prefix('category-blogs')->middleware('ability:admin')->group(function () {

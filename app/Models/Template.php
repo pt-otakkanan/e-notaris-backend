@@ -12,7 +12,14 @@ class Template extends Model
     protected $table = 'templates';
 
     protected $fillable = [
+        'user_id',
         'name',
         'custom_value',
+        'file',
+        'file_path',
     ];
+    public function user()
+    {
+        return $this->belongsTo(User::class);
+    }
 }
