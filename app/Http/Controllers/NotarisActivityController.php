@@ -240,6 +240,8 @@ class NotarisActivityController extends Controller
     }
 
 
+    // App\Http\Controllers\NotarisActivityController.php
+
     public function index(Request $request)
     {
         $user           = $request->user();
@@ -259,11 +261,14 @@ class NotarisActivityController extends Controller
             'schedules'
         ]);
 
-        // Hanya batasi ke miliknya sendiri jika BUKAN admin
         if ((int)$user->role_id !== 1) {
+            // NOTARIS: hanya miliknya sendiri
             $query->where('user_notaris_id', $user->id);
         } else {
-            // Admin boleh lihat semua; jika diberi ?notaris_id=..., batasi
+            // ADMIN: lihat semua KECUALI proyek admin sendiri
+            $query->where('user_notaris_id', '!=', $user->id);
+
+            // Jika admin memberi filter notaris_id, terapkan juga (tetap exclude own)
             if (!empty($filterNotarisId)) {
                 $query->where('user_notaris_id', (int)$filterNotarisId);
             }
@@ -315,6 +320,81 @@ class NotarisActivityController extends Controller
             ]
         ], 200);
     }
+
+    /**
+     * Admin-only: daftar proyek milik admin sendiri (user_notaris_id = admin.id)
+     */
+    public function indexAdmin(Request $request)
+    {
+        $user = $request->user();
+
+        if ((int)$user->role_id !== 1) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Hanya admin yang dapat mengakses.',
+            ], 403);
+        }
+
+        $search         = $request->query('search');
+        $approvalStatus = $request->query('status');
+        $perPage        = (int)($request->query('per_page', 10)) ?: 10;
+
+        $query = Activity::with([
+            'deed',
+            'notaris',
+            'track',
+            'clients:id,name,email',
+            'clientActivities',
+            'schedules'
+        ])->where('user_notaris_id', $user->id);
+
+        if ($search) {
+            $query->where(function ($sub) use ($search) {
+                $sub->where('tracking_code', 'like', "%{$search}%")
+                    ->orWhere('name', 'like', "%{$search}%")
+                    ->orWhereHas('deed', function ($q) use ($search) {
+                        $q->where('name', 'like', "%{$search}%");
+                    });
+            });
+        }
+
+        if ($approvalStatus && in_array($approvalStatus, ['pending', 'approved', 'rejected'], true)) {
+            $query->where(function ($q) use ($approvalStatus) {
+                if ($approvalStatus === 'approved') {
+                    $q->whereDoesntHave('clientActivities', function ($h) {
+                        $h->where('status_approval', '!=', 'approved');
+                    });
+                } elseif ($approvalStatus === 'rejected') {
+                    $q->whereHas('clientActivities', function ($h) {
+                        $h->where('status_approval', 'rejected');
+                    });
+                } else {
+                    $q->whereHas('clientActivities', function ($h) {
+                        $h->where('status_approval', 'pending');
+                    })->whereDoesntHave('clientActivities', function ($h) {
+                        $h->where('status_approval', 'rejected');
+                    });
+                }
+            });
+        }
+
+        $activities = $query->orderBy('created_at', 'desc')->paginate($perPage);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Daftar aktivitas (milik admin) berhasil diambil',
+            'data'    => $activities->items(),
+            'meta'    => [
+                'current_page' => $activities->currentPage(),
+                'per_page'     => $activities->perPage(),
+                'total'        => $activities->total(),
+                'last_page'    => $activities->lastPage(),
+                'from'         => $activities->firstItem(),
+                'to'           => $activities->lastItem(),
+            ]
+        ], 200);
+    }
+
 
 
     public function show(Request $request, $id)
