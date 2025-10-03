@@ -216,13 +216,13 @@ Route::prefix('admin')->middleware(['auth:sanctum'])->group(function () {
 Route::prefix('notaris')->middleware(['auth:sanctum'])->group(function () {
 
     // Upload editor (khusus notaris; pakai checkverif)
-    Route::middleware(['ability:notaris', 'checkverif'])->group(function () {
+    Route::middleware(['ability:notaris,admin', 'checkverif'])->group(function () {
         Route::post('/editor/upload-image', [EditorUploadController::class, 'uploadImage']);
         Route::delete('/editor/image',      [EditorUploadController::class, 'deleteImage']);
     });
 
     // Activity (CRUD & listing)
-    Route::prefix('activity')->middleware('ability:notaris')->group(function () {
+    Route::prefix('activity')->middleware('ability:notaris,admin')->group(function () {
         Route::get('/user/approved',           [NotarisActivityController::class, 'getByUserApproved']);
         Route::get('/user/client',             [NotarisActivityController::class, 'getUsers']);
         Route::get('/user/remove/{userid}/{activityid}', [NotarisActivityController::class, 'removeUser']);
@@ -241,6 +241,9 @@ Route::prefix('notaris')->middleware(['auth:sanctum'])->group(function () {
         Route::get('/',                        [NotarisActivityController::class, 'index']);
         Route::delete('/{id}',         [NotarisActivityController::class, 'destroy']);
     });
+    Route::prefix('activity')->middleware('ability:admin')->group(function () {
+        Route::get('/admin/activity',                        [NotarisActivityController::class, 'indexAdmin']);
+    });
 
     // Activity detail bisa diakses notaris & penghadap (verif)
     Route::prefix('activity')
@@ -251,7 +254,7 @@ Route::prefix('notaris')->middleware(['auth:sanctum'])->group(function () {
 
     // Signing flow (notaris & penghadap; verif)
     Route::prefix('activities/{id}/sign')
-        ->middleware(['ability:notaris,penghadap', 'checkverif'])
+        ->middleware(['ability:admin,notaris,penghadap', 'checkverif'])
         ->group(function () {
             Route::post('/apply',      [SignController::class, 'apply']);
             Route::post('/placements', [SignController::class, 'storePlacements']);
@@ -261,17 +264,16 @@ Route::prefix('notaris')->middleware(['auth:sanctum'])->group(function () {
 
     // Track admin (khusus notaris; verif)
     Route::prefix('track')
-        ->middleware(['ability:notaris', 'checkverif'])
+        ->middleware(['ability:admin,notaris', 'checkverif'])
         ->group(function () {
             Route::get('/{id}',  [TrackController::class, 'show']);
             Route::post('/{id}', [TrackController::class, 'update']);
         });
 
-    // Schedule (notaris manage; penghadap bisa lihat via /schedule/user di shared)
     Route::prefix('schedule')
         ->middleware(['ability:admin,penghadap,notaris', 'checkverif'])
         ->group(function () {
-            Route::get('/',               [ScheduleController::class, 'index']);   // notaris list miliknya
+            Route::get('/',               [ScheduleController::class, 'index']);
             Route::get('/{id}',           [ScheduleController::class, 'show']);
             Route::post('/',              [ScheduleController::class, 'store']);
             Route::post('/update/{id}',   [ScheduleController::class, 'update']);
@@ -280,7 +282,7 @@ Route::prefix('notaris')->middleware(['auth:sanctum'])->group(function () {
 
     // Document Requirement (notaris perspective)
     Route::prefix('document-requirement')
-        ->middleware(['ability:notaris', 'checkverif'])
+        ->middleware(['ability:admin,notaris', 'checkverif'])
         ->group(function () {
             Route::get('/by-activity-notaris/{id}',                            [DocumentRequirementController::class, 'getRequirementByActivityNotaris']);
             Route::post('/by-activity-notaris/{idActivity}/{idUser}',          [DocumentRequirementController::class, 'getRequirementByActivityNotarisForUser']);

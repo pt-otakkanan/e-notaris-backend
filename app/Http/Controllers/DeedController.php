@@ -16,9 +16,10 @@ class DeedController extends Controller
         $q       = $request->query('search');
         $perPage = max(1, (int) $request->query('per_page', 10));
 
-        $query = $user->role_id === 1
-            ? Deed::query()
-            : Deed::where('user_notaris_id', $user->id);
+        // $query = $user->role_id === 1
+        //     ? Deed::query()
+        //     : Deed::where('user_notaris_id', $user->id);
+        $query = Deed::where('user_notaris_id', $user->id);
 
         if ($q) {
             $query->where(function ($sub) use ($q) {
