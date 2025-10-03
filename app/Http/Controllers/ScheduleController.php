@@ -2,11 +2,14 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\User;
 use App\Models\Track;
 use App\Models\Activity;
 use App\Models\Schedule;
+use App\Mail\ScheduleMail;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Validator;
 
 class ScheduleController extends Controller
@@ -108,17 +111,7 @@ class ScheduleController extends Controller
             'location'    => 'nullable|string|max:500',
             'notes'       => 'nullable|string|max:500',
         ], [
-            'location.string'     => 'Lokasi harus berupa teks.',
-            'location.max'        => 'Lokasi maksimal 500 karakter.',
-            'activity_id.required' => 'Activity wajib diisi.',
-            'activity_id.integer' => 'Activity tidak valid.',
-            'activity_id.exists'  => 'Activity tidak ditemukan.',
-            'date.required'       => 'Tanggal wajib diisi.',
-            'date.date_format'    => 'Format tanggal harus Y-m-d.',
-            'time.required'       => 'Waktu wajib diisi.',
-            'time.date_format'    => 'Format waktu harus H:i (24 jam).',
-            'notes.string'        => 'Catatan harus berupa teks.',
-            'notes.max'           => 'Catatan maksimal 500 karakter.',
+            // ... pesan validasi kamu
         ]);
 
         if ($validasi->fails()) {
@@ -132,14 +125,13 @@ class ScheduleController extends Controller
         $payload = $validasi->validated();
 
         $schedule = DB::transaction(function () use ($payload) {
-            // buat jadwal
             $schedule = Schedule::create($payload);
-
-            // set track.status_schedule = 'done'
             $this->markScheduleStepDone($payload['activity_id']);
-
             return $schedule;
         });
+
+        // === Kirim notifikasi setelah commit ===
+        $this->notifySchedule($schedule->fresh(['activity']), 'created');
 
         return response()->json([
             'success' => true,
@@ -165,18 +157,6 @@ class ScheduleController extends Controller
             'time'        => 'required|date_format:H:i',
             'location'    => 'nullable|string|max:500',
             'notes'       => 'nullable|string|max:500',
-        ], [
-            'location.string'     => 'Lokasi harus berupa teks.',
-            'location.max'        => 'Lokasi maksimal 500 karakter.',
-            'activity_id.required' => 'Activity wajib diisi.',
-            'activity_id.integer' => 'Activity tidak valid.',
-            'activity_id.exists'  => 'Activity tidak ditemukan.',
-            'date.required'       => 'Tanggal wajib diisi.',
-            'date.date_format'    => 'Format tanggal harus Y-m-d.',
-            'time.required'       => 'Waktu wajib diisi.',
-            'time.date_format'    => 'Format waktu harus H:i (24 jam).',
-            'notes.string'        => 'Catatan harus berupa teks.',
-            'notes.max'           => 'Catatan maksimal 500 karakter.',
         ]);
 
         if ($validasi->fails()) {
@@ -196,16 +176,145 @@ class ScheduleController extends Controller
                 }
             }
             $schedule->save();
-
-            // pastikan track step schedule = done (kalau sudah done, tetap dipertahankan)
             $this->markScheduleStepDone($schedule->activity_id);
         });
+
+        // === Kirim notifikasi setelah commit ===
+        $this->notifySchedule($schedule->fresh(['activity']), 'updated');
 
         return response()->json([
             'success' => true,
             'message' => 'Jadwal berhasil diperbarui',
             'data'    => $schedule
         ], 200);
+    }
+
+    public function destroy($id)
+    {
+        $schedule = Schedule::with('activity')->find($id);
+        if (!$schedule) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Jadwal tidak ditemukan',
+                'data'    => null
+            ], 404);
+        }
+
+        // simpan snapshot untuk email
+        $snapshot = $schedule->replicate();
+        $snapshot->setRelation('activity', $schedule->activity);
+
+        DB::transaction(function () use ($schedule) {
+            $schedule->delete();
+        });
+
+        // === Kirim notifikasi setelah commit ===
+        $this->notifySchedule($snapshot, 'deleted');
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Jadwal berhasil dihapus',
+            'data'    => null
+        ], 200);
+    }
+
+    // ======================= NOTIFIKASI SCHEDULE =======================
+
+    /**
+     * Kirim email notifikasi jadwal ke semua klien di activity & notaris.
+     * @param Schedule $schedule (harus punya relasi 'activity' terload)
+     * @param string   $type     'created'|'updated'|'deleted'
+     */
+    private function notifySchedule(Schedule $schedule, string $type): void
+    {
+        $activity = $schedule->activity ?? Activity::with('clientActivities.user')
+            ->find($schedule->activity_id);
+
+        if (!$activity) return;
+
+        // Ambil notaris
+        $notary = User::find($activity->user_notaris_id);
+
+        // Ambil daftar klien dari relasi pivot (clientActivities -> user)
+        // Pastikan Activity punya relasi:
+        // public function clientActivities() { return $this->hasMany(ClientActivity::class); }
+        // dan ClientActivity punya relasi user()
+        $clients = $activity->clientActivities()
+            ->with('user:id,name,email')
+            ->get()
+            ->pluck('user')
+            ->filter(fn($u) => $u && $u->email);
+
+        // detail umum
+        $baseDetails = $this->buildScheduleMailDetails($activity, $schedule, $type);
+
+        DB::afterCommit(function () use ($clients, $notary, $baseDetails) {
+            try {
+                // Kirim ke setiap klien
+                foreach ($clients as $client) {
+                    $details = $baseDetails;
+                    $details['recipient_name'] = $client->name ?? 'Pengguna';
+
+                    $mailable = new ScheduleMail($details, $details['subject'] ?? 'Notifikasi Jadwal');
+
+                    $mailer = Mail::to($client->email, $client->name);
+                    if ($notaryEmail = ($notary->email ?? null)) {
+                        // BCC ke notaris (opsional)
+                        $mailer->bcc($notaryEmail, $notary->name ?? 'Notaris');
+                    }
+                    $mailer->send($mailable);
+                }
+
+                // Kirim ke notaris juga (opsional)
+                if ($notary && $notary->email) {
+                    $details = $baseDetails;
+                    $details['recipient_name'] = $notary->name ?? 'Notaris';
+                    $mailable = new ScheduleMail($details, $details['subject'] ?? 'Notifikasi Jadwal');
+                    Mail::to($notary->email, $notary->name)->send($mailable);
+                }
+            } catch (\Throwable $e) {
+                // Diabaikan sesuai preferensi (tanpa \Log)
+            }
+        });
+    }
+
+    /**
+     * Susun detail untuk email jadwal
+     */
+    private function buildScheduleMailDetails(Activity $activity, Schedule $schedule, string $type): array
+    {
+        // format tanggal & jam (WIB)
+        $dateStr = null;
+        try {
+            $dateStr = \Carbon\Carbon::parse($schedule->date . ' ' . $schedule->time, 'Asia/Jakarta')
+                ->translatedFormat('l, d F Y • H:i') . ' WIB';
+        } catch (\Throwable $e) {
+            $dateStr = ($schedule->date ?? '-') . ' ' . ($schedule->time ?? '-');
+        }
+
+        // subject dinamis
+        $subjectBase = match ($type) {
+            'created' => 'Jadwal Baru Dibuat',
+            'updated' => 'Jadwal Diperbarui',
+            'deleted' => 'Jadwal Dibatalkan',
+            default   => 'Notifikasi Jadwal',
+        };
+
+        // URL detail (sesuaikan rute FE kamu)
+        $url = url('/app/schedule/' . ($schedule->id ?? ''));
+
+        return [
+            'subject'        => $subjectBase,
+            'app_name'       => config('app.name'),
+            'activity_name'  => $activity->name ?? 'Aktivitas',
+            'tracking_code'  => $activity->tracking_code ?? '-',
+            'notary_name'    => optional(User::find($activity->user_notaris_id))->name ?? '-',
+            'place'          => $schedule->location ?? null,
+            'date_str'       => $dateStr,
+            'notes'          => $schedule->notes ?? null,
+            'type'           => $type, // created|updated|deleted
+            'url'            => $type === 'deleted' ? null : $url, // jika sudah dihapus, tidak perlu URL
+        ];
     }
 
     /**
@@ -229,28 +338,6 @@ class ScheduleController extends Controller
         }
     }
 
-    /**
-     * DELETE /schedules/{id}
-     */
-    public function destroy($id)
-    {
-        $schedule = Schedule::find($id);
-        if (!$schedule) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Jadwal tidak ditemukan',
-                'data'    => null
-            ], 404);
-        }
-
-        $schedule->delete();
-
-        return response()->json([
-            'success' => true,
-            'message' => 'Jadwal berhasil dihapus',
-            'data'    => null
-        ], 200);
-    }
 
     /**
      * GET /schedule/user

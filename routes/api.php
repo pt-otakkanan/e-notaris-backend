@@ -270,11 +270,10 @@ Route::prefix('notaris')->middleware(['auth:sanctum'])->group(function () {
             Route::post('/{id}', [TrackController::class, 'update']);
         });
 
-    // Schedule (notaris manage; penghadap bisa lihat via /schedule/user di shared)
     Route::prefix('schedule')
         ->middleware(['ability:admin,penghadap,notaris', 'checkverif'])
         ->group(function () {
-            Route::get('/',               [ScheduleController::class, 'index']);   // notaris list miliknya
+            Route::get('/',               [ScheduleController::class, 'index']);
             Route::get('/{id}',           [ScheduleController::class, 'show']);
             Route::post('/',              [ScheduleController::class, 'store']);
             Route::post('/update/{id}',   [ScheduleController::class, 'update']);
