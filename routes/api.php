@@ -24,6 +24,7 @@ use App\Http\Controllers\VerificationController;
 use App\Http\Controllers\MainValueDeedController;
 use App\Http\Controllers\ClientActivityController;
 use App\Http\Controllers\NotarisActivityController;
+use App\Http\Controllers\Api\Auth\GoogleAuthController;
 use App\Http\Controllers\DocumentRequirementController;
 
 /*
@@ -50,10 +51,35 @@ Route::get('/', function () {
 // -------------------------------------------------------------
 Route::prefix('auth')->group(function () {
     // Public
+    Route::middleware('ability:penghadap,notaris,admin')->group(function () {
+        Route::post('/register-admin', [AuthController::class, 'registerUserAdmin']);
+    });
+
+
     Route::post('/register', [AuthController::class, 'registerUser']);
     Route::post('/verify',   [AuthController::class, 'verifyEmail']);
     Route::post('/resend',   [AuthController::class, 'resendCode']);
     Route::post('/login',    [AuthController::class, 'loginUser']);
+
+
+    Route::post('/forgot', [AuthController::class, 'requestPasswordReset']);
+    Route::post('/reset',  [AuthController::class, 'resetPassword']);
+
+    Route::prefix('google')->group(function () {
+        // Mode 1: OAuth redirect/callback (SPA)
+        Route::get('/redirect', [GoogleAuthController::class, 'redirect']);
+        Route::get('/callback', [GoogleAuthController::class, 'callback']);
+
+        // Mode 2: Token-based (frontend kirim id_token Google One Tap)
+        Route::post('/token-login', [GoogleAuthController::class, 'tokenLogin']);
+    });
+
+    // Opsional: driver partner
+    Route::prefix('auth/google/partner')->group(function () {
+        Route::get('/redirect', [GoogleAuthController::class, 'redirectPartner']);
+        Route::get('/callback', [GoogleAuthController::class, 'callbackPartner']);
+        Route::post('/token-login', [GoogleAuthController::class, 'tokenLoginPartner']);
+    });
 
     // Protected
     Route::middleware('auth:sanctum')->group(function () {
@@ -189,6 +215,7 @@ Route::prefix('admin')->middleware(['auth:sanctum'])->group(function () {
         Route::get('/',        [UserController::class, 'getAllUsers']);
         Route::get('/{id}',    [UserController::class, 'getDetailUser']);
         Route::delete('/{id}', [UserController::class, 'destroyUser']);
+        Route::post('/',              [AuthController::class, 'adminCreateUserWithVerification']);
     });
 
     // Main Value Deed (admin & notaris)

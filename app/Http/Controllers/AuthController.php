@@ -2,16 +2,19 @@
 
 namespace App\Http\Controllers;
 
-use App\Mail\AuthMail;
-use App\Models\User;
 use Carbon\Carbon;
+use App\Models\User;
+use App\Mail\AuthMail;
+use Illuminate\Support\Str;
 use Illuminate\Http\Request;
+use App\Mail\ResetPasswordMail;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Validator;
-use Illuminate\Support\Str;
+use Illuminate\Support\Facades\RateLimiter;
 
 class AuthController extends Controller
 {
@@ -287,5 +290,175 @@ class AuthController extends Controller
         ]);
 
         $this->sendVerificationMail($user, $code, $expires);
+    }
+
+    public function adminCreateUserWithVerification(Request $request)
+    {
+
+        // validasi
+        $validasi = Validator::make($request->all(), [
+            'name'     => 'required|string|max:255',
+            'email'    => 'required|email|unique:users,email',
+            'password' => 'required|string|min:6',
+            'role_id'  => 'required|in:2,3', // 2=penghadap, 3=notaris
+        ], [
+            'name.required'     => 'Nama wajib diisi.',
+            'email.required'    => 'Email wajib diisi.',
+            'email.email'       => 'Format email tidak valid.',
+            'email.unique'      => 'Email sudah terdaftar.',
+            'password.required' => 'Password wajib diisi.',
+            'password.min'      => 'Password minimal 6 karakter.',
+            'role_id.required'  => 'Role wajib dipilih.',
+            'role_id.in'        => 'Role hanya boleh 2 (penghadap) atau 3 (notaris).',
+        ]);
+
+        if ($validasi->fails()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Proses validasi gagal',
+                'data'    => $validasi->errors()
+            ], 422);
+        }
+
+        // generate kode & expiry utk verifikasi
+        $code    = Str::upper(Str::random(7));
+        $expires = now()->addHour();
+
+        // buat user (BELUM terverifikasi)
+        $user = User::create([
+            'role_id'     => (int) $request->role_id,
+            'name'        => $request->name,
+            'email'       => $request->email,
+            'password'    => Hash::make($request->password),
+            'verify_key'  => $code,
+            'expired_key' => $expires,
+            'email_verified_at' => null,
+        ]);
+
+        // kirim email verifikasi (pakai helper yg sdh ada)
+        $this->sendVerificationMail($user, $code, $expires);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'User dibuat. Kode verifikasi telah dikirim ke email.',
+            'data'    => [
+                'id'      => $user->id,
+                'name'    => $user->name,
+                'email'   => $user->email,
+                'role_id' => $user->role_id,
+                'verified' => false,
+            ]
+        ], 201);
+    }
+
+    public function requestPasswordReset(Request $request)
+    {
+        $request->validate(['email' => 'required|email']);
+
+        // Throttle by email
+        $key = 'forgot:' . sha1($request->email);
+        if (RateLimiter::tooManyAttempts($key, 3)) {
+            $seconds = RateLimiter::availableIn($key);
+            return response()->json([
+                'success' => false,
+                'message' => "Terlalu sering. Coba lagi dalam {$seconds} detik."
+            ], 429);
+        }
+        RateLimiter::hit($key, 60); // reset 60 detik
+
+        $user = User::where('email', $request->email)->first();
+
+        // Selalu return “sukses” agar tidak bocorkan keberadaan email
+        if ($user) {
+            $this->createPasswordResetTokenAndMail($user);
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Jika email terdaftar, kami telah mengirim tautan reset.'
+        ], 200);
+    }
+
+    /** POST /auth/reset { email, token, password, confirmPassword } */
+    public function resetPassword(Request $request)
+    {
+        $valid = Validator::make($request->all(), [
+            'email'           => 'required|email',
+            'token'           => 'required|string',
+            'password'        => ['required', 'confirmed'],
+        ], [
+            'password.confirmed' => 'Konfirmasi password tidak sama.',
+        ]);
+
+        if ($valid->fails()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Proses reset gagal',
+                'data'    => $valid->errors()
+            ], 422);
+        }
+
+        $user = User::where('email', $request->email)->first();
+        if (!$user) {
+            // respons generik
+            return response()->json(['success' => true, 'message' => 'Password telah direset bila token valid.'], 200);
+        }
+
+        $row = DB::table('password_reset_tokens')->where('email', $user->email)->first();
+        if (!$row) {
+            return response()->json(['success' => false, 'message' => 'Token tidak valid.'], 400);
+        }
+
+        // cek expiry
+        if ($row->expired_at && \Carbon\Carbon::parse($row->expired_at)->isPast()) {
+            // hapus token kadaluarsa
+            DB::table('password_reset_tokens')->where('email', $user->email)->delete();
+            return response()->json(['success' => false, 'message' => 'Token kadaluarsa. Ajukan reset lagi.'], 400);
+        }
+
+        // verify token (dibandingkan sebagai hash)
+        if (!Hash::check($request->token, $row->token)) {
+            return response()->json(['success' => false, 'message' => 'Token tidak valid.'], 400);
+        }
+
+        // Update password & bersihkan token
+        $user->password = Hash::make($request->password);
+        $user->save();
+
+        DB::table('password_reset_tokens')->where('email', $user->email)->delete();
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Kata sandi berhasil direset. Silakan login.'
+        ], 200);
+    }
+
+    /** Helper: buat token reset + kirim email */
+    private function createPasswordResetTokenAndMail(User $user): void
+    {
+        $plainToken = Str::random(64);
+        $hashed     = Hash::make($plainToken);
+        $expiresAt  = now()->addMinutes(60);
+
+        // upsert (1 email = 1 row)
+        DB::table('password_reset_tokens')->updateOrInsert(
+            ['email' => $user->email],
+            ['token' => $hashed, 'created_at' => now(), 'expired_at' => $expiresAt]
+        );
+
+        $frontend = rtrim(config('app.frontend_url'), '/');
+        $resetUrl = $frontend . '/reset-password?' . http_build_query([
+            'email' => $user->email,
+            'token' => $plainToken,
+        ]);
+
+        $details = [
+            'name'       => $user->name,
+            'website'    => config('app.name'),
+            'url'        => $resetUrl,
+            'expires_at' => $expiresAt->toIso8601String(),
+        ];
+
+        Mail::to($user->email)->send(new ResetPasswordMail($details));
     }
 }

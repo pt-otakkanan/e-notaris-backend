@@ -12,6 +12,7 @@
         "guzzlehttp/guzzle": "^7.8",
         "laravel/framework": "^10.10",
         "laravel/sanctum": "^3.3",
+        "laravel/socialite": "^5.23",
         "laravel/tinker": "^2.8",
         "phpoffice/phpword": "^1.4",
         "setasign/fpdi-fpdf": "^2.3"
