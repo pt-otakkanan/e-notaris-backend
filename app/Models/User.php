@@ -35,6 +35,7 @@ class User extends Authenticatable
         'verify_key',
         'expired_key',
         'email_verified_at',
+        'google_id',
     ];
 
 
