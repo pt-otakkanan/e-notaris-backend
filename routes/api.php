@@ -24,7 +24,7 @@ use App\Http\Controllers\VerificationController;
 use App\Http\Controllers\MainValueDeedController;
 use App\Http\Controllers\ClientActivityController;
 use App\Http\Controllers\NotarisActivityController;
-use App\Http\Controllers\Api\Auth\GoogleAuthController;
+use App\Http\Controllers\GoogleAuthController;
 use App\Http\Controllers\DocumentRequirementController;
 
 /*

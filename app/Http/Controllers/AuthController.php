@@ -198,27 +198,44 @@ class AuthController extends Controller
         if ($validasi->fails()) {
             return response()->json([
                 'success' => false,
-                'message' => 'Proses login gagal',
+                'message' => 'Proses login gagal.',
                 'data'    => $validasi->errors()
             ], 422);
         }
 
-        if (!Auth::attempt($request->only('email', 'password'))) {
+        try {
+            if (!Auth::attempt($request->only('email', 'password'))) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Email atau kata sandi yang Anda masukkan salah.'
+                ], 401);
+            }
+        } catch (\RuntimeException $e) {
+            // Tangkap error bcrypt
+            if (str_contains($e->getMessage(), 'Bcrypt')) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Akun Anda terdaftar melalui Google. Silakan login menggunakan tombol "Masuk dengan Google".',
+                ], 500);
+            }
+
+            // Tangkap error lain
             return response()->json([
                 'success' => false,
-                'message' => 'Email atau password anda salah'
-            ], 401);
+                'message' => 'Terjadi kesalahan internal pada sistem autentikasi.',
+                'error'   => $e->getMessage()
+            ], 500);
         }
 
         $user = User::with('roles')->where('email', $request->email)->first();
 
-        // blokir login kalau belum verifikasi
+        // Cegah login jika belum verifikasi email
         if (is_null($user->email_verified_at)) {
             if ($user->expired_key && Carbon::parse($user->expired_key)->isPast()) {
                 $this->regenerateAndSendVerificationCode($user);
                 return response()->json([
                     'success' => false,
-                    'message' => 'Akun belum terverifikasi. Kode baru telah dikirim ke email.'
+                    'message' => 'Akun belum terverifikasi. Kode baru telah dikirim ke email Anda.'
                 ], 403);
             }
             return response()->json([
@@ -236,7 +253,7 @@ class AuthController extends Controller
 
         return response()->json([
             'success' => true,
-            'message' => 'Anda berhasil login',
+            'message' => 'Anda berhasil login.',
             'data'    => [
                 'role_id' => $user->role_id,
                 'name'    => $user->name,
@@ -245,6 +262,7 @@ class AuthController extends Controller
             ]
         ], 200);
     }
+
 
     public function logout(Request $request)
     {
