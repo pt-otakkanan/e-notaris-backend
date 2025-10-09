@@ -14,9 +14,12 @@ class Template extends Model
     protected $fillable = [
         'user_id',
         'name',
+        'description',
         'custom_value',
         'file',
         'file_path',
+        'logo',
+        'logo_path',
     ];
     public function user()
     {
