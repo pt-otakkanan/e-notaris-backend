@@ -14,7 +14,7 @@ class PartnerController extends Controller
     public function all(Request $request)
     {
         $min     = (bool) $request->query('min', false);
-        $columns = $min ? ['id', 'name', 'image'] : ['*'];
+        $columns = $min ? ['id', 'name', 'image', 'link'] : ['*'];
 
         $partners = Partner::select($columns)
             ->orderBy('created_at', 'desc')

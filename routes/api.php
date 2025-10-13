@@ -10,12 +10,14 @@ use App\Http\Controllers\SignController;
 use App\Http\Controllers\UserController;
 use App\Http\Controllers\DraftController;
 use App\Http\Controllers\TrackController;
+use App\Http\Controllers\LandingController;
 use App\Http\Controllers\PartnerController;
 use App\Http\Controllers\ProductController;
 use App\Http\Controllers\SettingController;
 use App\Http\Controllers\ScheduleController;
 use App\Http\Controllers\TemplateController;
 use App\Http\Controllers\DashboardController;
+use App\Http\Controllers\GoogleAuthController;
 use App\Http\Controllers\ClientDraftController;
 use App\Http\Controllers\RequirementController;
 use App\Http\Controllers\CategoryBlogController;
@@ -24,7 +26,6 @@ use App\Http\Controllers\VerificationController;
 use App\Http\Controllers\MainValueDeedController;
 use App\Http\Controllers\ClientActivityController;
 use App\Http\Controllers\NotarisActivityController;
-use App\Http\Controllers\GoogleAuthController;
 use App\Http\Controllers\DocumentRequirementController;
 
 /*
@@ -45,6 +46,21 @@ Route::get('/', function () {
         'message' => 'Tidak diizinkan mengakses. Pastikan role sudah benar atau token tidak kadaluarsa',
     ], 401);
 })->name('login');
+
+// Landing Page
+Route::prefix('partners')->group(function () {
+    Route::get('/',                 [PartnerController::class, 'index']);
+    Route::get('/all/partner',      [PartnerController::class, 'all']);
+    Route::get('/{id}',             [PartnerController::class, 'show']);
+});
+Route::prefix('landing')->group(function () {
+    Route::get('/statistics',                 [LandingController::class, 'statistics']);
+    Route::get('/templates',                 [LandingController::class, 'templates']);
+    Route::get('/blogs',            [LandingController::class, 'blogs']);
+    Route::get('/blog-categories',  [LandingController::class, 'blogCategories']);
+    Route::get('/blogs/latest', [LandingController::class, 'latestBlogs']);
+    Route::get('/settings', [LandingController::class, 'settings']);
+});
 
 // -------------------------------------------------------------
 // Auth (tanpa login & dengan login)
@@ -160,9 +176,6 @@ Route::prefix('admin')->middleware(['auth:sanctum'])->group(function () {
     });
 
     Route::prefix('partners')->middleware('ability:admin')->group(function () {
-        Route::get('/',                 [PartnerController::class, 'index']);
-        Route::get('/all/partner',      [PartnerController::class, 'all']);
-        Route::get('/{id}',             [PartnerController::class, 'show']);
         Route::post('/',                [PartnerController::class, 'store']);
         Route::post('/update/{id}',     [PartnerController::class, 'update']);
         Route::delete('/{id}',          [PartnerController::class, 'destroy']);
