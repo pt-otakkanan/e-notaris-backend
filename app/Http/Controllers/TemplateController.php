@@ -14,6 +14,19 @@ use CloudinaryLabs\CloudinaryLaravel\Facades\Cloudinary;
 
 class TemplateController extends Controller
 {
+    private function uploadToCloudinary($uploadedFile, $folder, $prefix = 'tpllogo_'): array
+    {
+        $filename = $prefix . now()->format('YmdHis');
+        $publicId = "{$folder}/{$filename}";
+        $upload = Cloudinary::upload($uploadedFile->getRealPath(), [
+            'folder'        => $folder . '/',
+            'public_id'     => $filename,
+            'overwrite'     => true,
+            'resource_type' => 'image',
+        ]);
+        return [$upload->getSecurePath(), $publicId];
+    }
+
     /** =====================
      *  Util: Query visibilitas
      *  - Admin: semua
@@ -169,10 +182,14 @@ class TemplateController extends Controller
 
         $validasi = Validator::make($request->all(), [
             'name'         => ['required', 'string', 'max:150'],
+            'description'  => ['nullable', 'string', 'max:500'],
             'custom_value' => ['required', 'string'],
+            'logo'         => ['nullable', 'file', 'mimes:jpg,jpeg,png,webp', 'max:5120'], // ✅
         ], [
             'name.required'         => 'Nama template wajib diisi.',
             'custom_value.required' => 'Isi template wajib diisi.',
+            'logo.mimes'            => 'Logo harus jpg, jpeg, png, atau webp.',
+            'logo.max'              => 'Logo maksimal 5MB.',
         ]);
 
         if ($validasi->fails()) {
@@ -184,7 +201,14 @@ class TemplateController extends Controller
         }
 
         $data = $validasi->validated();
-        $data['user_id'] = $user->id; // lock ke pemilik pembuat
+        $data['user_id'] = $user->id;
+
+        // upload logo jika ada
+        if ($request->hasFile('logo')) {
+            [$url, $pid] = $this->uploadToCloudinary($request->file('logo'), 'enotaris/templates', 'tpllogo_');
+            $data['logo'] = $url;
+            $data['logo_path'] = $pid;
+        }
 
         $tpl = Template::create($data);
 
@@ -201,28 +225,18 @@ class TemplateController extends Controller
         $tpl  = Template::find($id);
 
         if (!$tpl) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Template tidak ditemukan',
-                'data'    => null,
-            ], 404);
+            return response()->json(['success' => false, 'message' => 'Template tidak ditemukan', 'data' => null], 404);
         }
-
         if (!$this->canModify($user, $tpl)) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Anda tidak berhak mengubah template ini',
-                'data'    => null,
-            ], 403);
+            return response()->json(['success' => false, 'message' => 'Anda tidak berhak mengubah template ini', 'data' => null], 403);
         }
 
         $validasi = Validator::make($request->all(), [
             'name'         => ['sometimes', 'required', 'string', 'max:150'],
+            'description'  => ['sometimes', 'nullable', 'string', 'max:500'],
             'custom_value' => ['sometimes', 'required', 'string'],
-            // user_id tidak boleh diubah lewat API
-        ], [
-            'name.required'         => 'Nama template wajib diisi.',
-            'custom_value.required' => 'Isi template wajib diisi.',
+            'logo'         => ['sometimes', 'file', 'mimes:jpg,jpeg,png,webp', 'max:5120'], // ✅
+            'clear_logo'   => ['sometimes', 'boolean'],                                      // ✅
         ]);
 
         if ($validasi->fails()) {
@@ -233,7 +247,33 @@ class TemplateController extends Controller
             ], 422);
         }
 
-        $tpl->update($validasi->validated());
+        $data = $validasi->validated();
+
+        // basic fields
+        foreach (['name', 'description', 'custom_value'] as $f) {
+            if (array_key_exists($f, $data)) $tpl->{$f} = $data[$f];
+        }
+
+        // clear logo
+        if (($data['clear_logo'] ?? false) === true) {
+            if (!empty($tpl->logo_path)) {
+                Cloudinary::destroy($tpl->logo_path);
+            }
+            $tpl->logo = null;
+            $tpl->logo_path = null;
+        }
+
+        // replace logo
+        if ($request->hasFile('logo')) {
+            if (!empty($tpl->logo_path)) {
+                Cloudinary::destroy($tpl->logo_path);
+            }
+            [$url, $pid] = $this->uploadToCloudinary($request->file('logo'), 'enotaris/templates', 'tpllogo_');
+            $tpl->logo = $url;
+            $tpl->logo_path = $pid;
+        }
+
+        $tpl->save();
 
         return response()->json([
             'success' => true,
