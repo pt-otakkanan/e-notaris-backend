@@ -6,6 +6,7 @@ use App\Models\Role;
 use App\Models\User;
 use App\Models\Identity;
 use Illuminate\Database\Seeder;
+use Database\Seeders\DeedSeeder;
 use Illuminate\Support\Facades\Hash;
 use Database\Seeders\TemplatesTableSeeder;
 
@@ -25,6 +26,21 @@ class DatabaseSeeder extends Seeder
 
         // 2) Users (lengkap dengan kolom profil)
         $usersToSeed = [
+            [
+                'role_id'             => 1,
+                'name'                => 'admin',
+                'email'               => 'admin@gmail.com',
+                'password'            => 'rahasia123',
+                'status_verification' => 'approved',
+                'verify_key'          => '5HSAKDU',
+                'email_verified_at'   => '2025-09-08 15:28:18',
+                'gender'              => 'male',
+                'telepon'             => '081200000000',
+                'address'             => 'Jl. Merpati No. 10',
+                'city'                => 'Jakarta',
+                'province'            => 'DKI Jakarta',
+                'postal_code'         => '10220',
+            ],
             [
                 'role_id'             => 3,
                 'name'                => 'Adam Aditya',
@@ -100,21 +116,6 @@ class DatabaseSeeder extends Seeder
                 'province'            => 'Jawa Tengah',
                 'postal_code'         => '50135',
             ],
-            [
-                'role_id'             => 1,
-                'name'                => 'admin',
-                'email'               => 'admin@gmail.com',
-                'password'            => 'rahasia123',
-                'status_verification' => 'approved',
-                'verify_key'          => '5HSAKDU',
-                'email_verified_at'   => '2025-09-08 15:28:18',
-                'gender'              => 'male',
-                'telepon'             => '081200000000',
-                'address'             => 'Jl. Merpati No. 10',
-                'city'                => 'Jakarta',
-                'province'            => 'DKI Jakarta',
-                'postal_code'         => '10220',
-            ],
         ];
 
         foreach ($usersToSeed as $u) {
@@ -173,6 +174,8 @@ class DatabaseSeeder extends Seeder
             // --- Panggil seeder templates ---
             $this->call(TemplastesTableSeeder::class);
         }
+
+        $this->call(DeedSeeder::class);
     }
 
     private function ph(string $label): string
