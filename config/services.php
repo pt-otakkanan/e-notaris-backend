@@ -31,16 +31,29 @@ return [
         'region' => env('AWS_DEFAULT_REGION', 'us-east-1'),
     ],
 
+    // 'google' => [
+    //     'client_id' => env('GOOGLE_CLIENT_ID'),
+    //     'client_secret' => env('GOOGLE_CLIENT_SECRET'),
+    //     'redirect' => 'http://127.0.0.1:8000/auth/google/call-back',
+    // ],
+
+    // 'googlePartner' => [
+    //     'client_id' => env('GOOGLE_PARTNER_CLIENT_ID'),
+    //     'client_secret' => env('GOOGLE_PARTNER_CLIENT_SECRET'),
+    //     'redirect' => 'http://127.0.0.1:8000/auth/google/call-back/partner',
+    // ],
+
+    // config/services.php
     'google' => [
-        'client_id' => env('GOOGLE_CLIENT_ID'),
+        'client_id'     => env('GOOGLE_CLIENT_ID'),
         'client_secret' => env('GOOGLE_CLIENT_SECRET'),
-        'redirect' => 'http://127.0.0.1:8000/auth/google/call-back',
+        'redirect'      => env('GOOGLE_REDIRECT_URI', env('APP_URL') . '/auth/google/call-back'),
     ],
 
     'googlePartner' => [
-        'client_id' => env('GOOGLE_PARTNER_CLIENT_ID'),
+        'client_id'     => env('GOOGLE_PARTNER_CLIENT_ID'),
         'client_secret' => env('GOOGLE_PARTNER_CLIENT_SECRET'),
-        'redirect' => 'http://127.0.0.1:8000/auth/google/call-back/partner',
+        'redirect'      => env('GOOGLE_PARTNER_REDIRECT_URI', env('APP_URL') . '/auth/google/call-back/partner'),
     ],
 
     'cloudinary' => [
