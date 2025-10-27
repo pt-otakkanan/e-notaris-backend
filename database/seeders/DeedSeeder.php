@@ -10,9 +10,7 @@ class DeedSeeder extends Seeder
 {
     public function run(): void
     {
-        $admin = User::whereHas('role', function ($q) {
-            $q->where('name', 'admin');
-        })->first();
+        $admin = User::where('role_id', 1)->first();
 
         if (!$admin) {
             $this->command->warn('⚠️ Admin user not found. Skipping deed seeding.');
