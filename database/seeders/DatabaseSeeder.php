@@ -172,7 +172,7 @@ class DatabaseSeeder extends Seeder
                 ]
             );
             // --- Panggil seeder templates ---
-            $this->call(TemplastesTableSeeder::class);
+            $this->call(TemplatesTableSeeder::class);
         }
 
         $this->call(DeedSeeder::class);
