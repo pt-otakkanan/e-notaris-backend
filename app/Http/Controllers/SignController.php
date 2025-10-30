@@ -6,6 +6,7 @@ use App\Models\Track;
 use setasign\Fpdi\Fpdi;
 use App\Models\Activity;
 use App\Models\DraftDeed;
+use App\Models\Signature;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Http;
@@ -20,7 +21,6 @@ class SignController extends Controller
         try {
             $user = $request->user();
 
-            // 1) Ambil activity + draft + track untuk cek status
             $activity = Activity::with(['notaris', 'clients.identity', 'draft', 'track'])
                 ->find($activityId);
 
@@ -28,7 +28,6 @@ class SignController extends Controller
                 return response()->json(['success' => false, 'message' => 'Activity/draft tidak ditemukan'], 404);
             }
 
-            // 🔒 Cegah TTD jika sudah ditandai selesai
             if (($activity->track?->status_sign ?? null) === 'done') {
                 return response()->json([
                     'success' => false,
@@ -36,7 +35,6 @@ class SignController extends Controller
                 ], 422);
             }
 
-            // 2) Otorisasi sederhana
             $allowed = $user->role_id === 1
                 || $activity->user_notaris_id === $user->id
                 || $activity->clients->contains('id', $user->id);
@@ -45,7 +43,6 @@ class SignController extends Controller
                 return response()->json(['success' => false, 'message' => 'Tidak berhak'], 403);
             }
 
-            // 3) Validasi payload
             $data = $request->validate([
                 'source_pdf' => ['nullable', 'string'],
                 'placements' => ['required', 'array', 'min:1'],
@@ -57,9 +54,9 @@ class SignController extends Controller
                 'placements.*.h_ratio' => ['required', 'numeric', 'between:0,1'],
                 'placements.*.source_user_id' => ['nullable', 'integer'],
                 'placements.*.image_data_url' => ['nullable', 'string'],
+                'placements.*.is_initial' => ['nullable', 'boolean'], // NEW
             ]);
 
-            // 4) Ambil PDF sumber
             $sourceUrl = $data['source_pdf'] ?? $activity->draft->file;
             if (!$sourceUrl) {
                 return response()->json(['success' => false, 'message' => 'PDF sumber tidak tersedia'], 422);
@@ -72,11 +69,9 @@ class SignController extends Controller
             $bin = Http::timeout(60)->get($sourceUrl)->body();
             file_put_contents($tmpPdf, $bin);
 
-            // 5) Siapkan FPDI
-            $pdf = new Fpdi('P', 'mm'); // orientasi mengikuti template
+            $pdf = new \setasign\Fpdi\Fpdi('P', 'mm');
             $pageCount = $pdf->setSourceFile($tmpPdf);
 
-            // Kelompokkan placement by page
             $byPage = [];
             foreach ($data['placements'] as $p) {
                 $byPage[$p['page']][] = $p;
@@ -84,30 +79,29 @@ class SignController extends Controller
 
             for ($pageNo = 1; $pageNo <= $pageCount; $pageNo++) {
                 $tplId = $pdf->importPage($pageNo);
-                $size = $pdf->getTemplateSize($tplId); // ['width','height','orientation']
+                $size = $pdf->getTemplateSize($tplId);
                 $pdf->AddPage($size['orientation'], [$size['width'], $size['height']]);
                 $pdf->useTemplate($tplId);
 
                 if (!empty($byPage[$pageNo])) {
                     foreach ($byPage[$pageNo] as $pl) {
-                        // 6) Ambil sumber gambar
                         $imgTmp = null;
                         if ($pl['kind'] === 'image') {
-                            $signUser = null;
-                            if (!empty($pl['source_user_id'])) {
-                                $signUser = User::with('identity')->find($pl['source_user_id']);
-                            } else {
-                                // fallback: user yang sedang login
-                                $signUser = $user->loadMissing('identity');
-                            }
-                            $imgUrl = $signUser?->identity?->file_sign;
+                            $signUser = !empty($pl['source_user_id'])
+                                ? User::with('identity')->find($pl['source_user_id'])
+                                : $user->loadMissing('identity');
+
+                            // NEW: pilih sumber sesuai is_initial
+                            $imgUrl = !empty($pl['is_initial'])
+                                ? ($signUser?->identity?->file_initial)
+                                : ($signUser?->identity?->file_sign);
+
                             if (!$imgUrl) {
-                                Log::warning("Signature image missing for user_id={$pl['source_user_id']}");
+                                Log::warning("Signature/Initial image missing for user_id=" . ($pl['source_user_id'] ?? $user->id));
                                 continue;
                             }
                             $imgTmp = $this->downloadToTmp($imgUrl, 'sig_img_');
                         } else {
-                            // kind = draw (data URL)
                             $dataUrl = $pl['image_data_url'] ?? null;
                             if (!$dataUrl || !str_starts_with($dataUrl, 'data:image/')) {
                                 continue;
@@ -117,13 +111,11 @@ class SignController extends Controller
 
                         if (!$imgTmp) continue;
 
-                        // 7) Konversi rasio → mm
                         $x = (float)$pl['x_ratio'] * $size['width'];
                         $y = (float)$pl['y_ratio'] * $size['height'];
                         $w = (float)$pl['w_ratio'] * $size['width'];
                         $h = (float)$pl['h_ratio'] * $size['height'];
 
-                        // 8) Tempel gambar
                         try {
                             $pdf->Image($imgTmp, $x, $y, $w, $h);
                         } catch (\Throwable $e) {
@@ -135,11 +127,9 @@ class SignController extends Controller
                 }
             }
 
-            // 9) Simpan hasil sementara
             $outFile = $tmpDir . '/signed_' . $activity->draft->id . '_' . time() . '.pdf';
             $pdf->Output($outFile, 'F');
 
-            // 10) Upload Cloudinary (folder signed)
             try {
                 if (!empty($activity->draft->file_ttd_path)) {
                     try {
@@ -153,7 +143,7 @@ class SignController extends Controller
                 $filename = 'signed_pdf_' . now()->format('YmdHis');
                 $publicId = "{$folder}/{$filename}";
 
-                $upload = Cloudinary::upload($outFile, [
+                $upload = \CloudinaryLabs\CloudinaryLaravel\Facades\Cloudinary::upload($outFile, [
                     'folder'        => $folder . '/',
                     'public_id'     => $filename,
                     'overwrite'     => true,
@@ -170,9 +160,9 @@ class SignController extends Controller
                 if (file_exists($tmpPdf)) @unlink($tmpPdf);
             }
 
-            // (opsional) simpan placements ke DB
+            // (opsional) simpan placements ke DB (tambahkan kolom is_initial jika ada)
             foreach ($data['placements'] as $p) {
-                SignatureModel::create([
+                Signature::create([
                     'draft_deed_id'  => $activity->draft->id,
                     'activity_id'    => $activity->id,
                     'user_id'        => $p['source_user_id'] ?? $user->id,
@@ -182,13 +172,14 @@ class SignController extends Controller
                     'y_ratio'        => $p['y_ratio'],
                     'w_ratio'        => $p['w_ratio'],
                     'h_ratio'        => $p['h_ratio'],
+                    'is_initial'     => (bool)($p['is_initial'] ?? false),
                     'image_data_url' => $p['kind'] === 'draw' ? ($p['image_data_url'] ?? null) : null,
                 ]);
             }
 
             return response()->json([
                 'success' => true,
-                'message' => 'TTD berhasil diterapkan',
+                'message' => 'TTD/Paraf berhasil diterapkan',
                 'data' => [
                     'file'       => $activity->draft->file_ttd,
                     'file_path'  => $activity->draft->file_ttd_path,
@@ -255,30 +246,37 @@ class SignController extends Controller
     }
 
 
-    private function downloadToTmp(string $url, string $prefix): ?string
+    protected function downloadToTmp(string $url, string $prefix = 'img_'): ?string
     {
         try {
-            $bin = Http::timeout(30)->get($url)->body();
-            $path = storage_path('app/tmp/' . $prefix . uniqid() . '.png');
+            $tmpDir = storage_path('app/tmp');
+            if (!is_dir($tmpDir)) @mkdir($tmpDir, 0775, true);
+            $path = $tmpDir . '/' . $prefix . uniqid() . '.png';
+            $bin = \Illuminate\Support\Facades\Http::timeout(30)->get($url)->body();
             file_put_contents($path, $bin);
             return $path;
         } catch (\Throwable $e) {
-            Log::warning("downloadToTmp failed: " . $e->getMessage());
+            Log::warning("downloadToTmp fail: " . $e->getMessage());
             return null;
         }
     }
 
-    private function saveDataUrl(string $dataUrl, string $prefix): ?string
+    protected function saveDataUrl(string $dataUrl, string $prefix = 'img_'): ?string
     {
         try {
-            if (!preg_match('/^data:image\/(\w+);base64,/', $dataUrl, $m)) return null;
-            $ext = strtolower($m[1] ?? 'png');
-            $bin = base64_decode(substr($dataUrl, strpos($dataUrl, ',') + 1));
-            $path = storage_path('app/tmp/' . $prefix . uniqid() . '.' . $ext);
+            if (!str_starts_with($dataUrl, 'data:image/')) return null;
+            [$meta, $base] = explode(',', $dataUrl, 2);
+            $ext = 'png';
+            if (str_contains($meta, 'image/jpeg')) $ext = 'jpg';
+            $bin = base64_decode($base);
+
+            $tmpDir = storage_path('app/tmp');
+            if (!is_dir($tmpDir)) @mkdir($tmpDir, 0775, true);
+            $path = $tmpDir . '/' . $prefix . uniqid() . '.' . $ext;
             file_put_contents($path, $bin);
             return $path;
         } catch (\Throwable $e) {
-            Log::warning("saveDataUrl failed: " . $e->getMessage());
+            Log::warning("saveDataUrl fail: " . $e->getMessage());
             return null;
         }
     }

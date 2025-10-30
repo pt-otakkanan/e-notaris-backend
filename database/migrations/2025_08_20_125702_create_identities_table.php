@@ -25,6 +25,8 @@ return new class extends Migration
             $table->string('file_ktp_notaris_path', 255)->nullable();
             $table->string('file_sign', 255);
             $table->string('file_sign_path', 255);
+            $table->string('file_initialuserService', 255);
+            $table->string('file_initialuserService_path', 255);
             $table->timestamps();
 
             $table->foreign('user_id')->references('id')->on('users')->onDelete('cascade');

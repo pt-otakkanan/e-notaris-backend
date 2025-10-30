@@ -162,7 +162,7 @@ Route::prefix('admin')->middleware(['auth:sanctum'])->group(function () {
         Route::post('/update/{id}',     [TemplateController::class, 'update']);
         Route::delete('/{id}',          [TemplateController::class, 'destroy']);
         Route::get('/all/template',     [TemplateController::class, 'all']);
-        Route::post('/import-docx', [TemplateController::class, 'importDocx']);
+        Route::post('/import-docx',     [TemplateController::class, 'importDocx']);
         Route::post('/{id}/render-pdf', [TemplateController::class, 'renderPdf']);
     });
 
