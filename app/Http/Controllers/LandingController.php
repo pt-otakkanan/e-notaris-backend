@@ -34,6 +34,7 @@ class LandingController extends Controller
         ], 200);
     }
 
+
     public function templates(Request $request)
     {
         $q     = $request->query('q');
@@ -41,6 +42,11 @@ class LandingController extends Controller
 
         $items = Template::query()
             ->select(['id', 'name', 'description', 'logo'])
+            ->whereIn('user_id', function ($sub) {
+                $sub->select('id')
+                    ->from('users')
+                    ->where('role_id', 1); // hanya admin
+            })
             ->when($q, function ($qq) use ($q) {
                 $qq->where(function ($sub) use ($q) {
                     $sub->where('name', 'like', "%{$q}%")
@@ -57,18 +63,17 @@ class LandingController extends Controller
                 'id'        => $t->id,
                 'title'     => $t->name,
                 'desc'      => $t->description ?: 'Template akta.',
-                'icon_url'  => $t->logo,   // bisa null, FE handle fallback ikon
+                'icon_url'  => $t->logo,
             ];
         });
 
         return response()->json([
             'success' => true,
-            'message' => 'Daftar template berhasil diambil',
+            'message' => 'Daftar template admin berhasil diambil',
             'data'    => $data,
             'meta'    => ['count' => $data->count()],
         ], 200);
     }
-
     // GET /landing/blogs?q=&categories=Kat1,Kat2&per_page=&page=
     public function blogs(Request $request)
     {

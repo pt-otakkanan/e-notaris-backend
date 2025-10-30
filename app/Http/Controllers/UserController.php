@@ -91,6 +91,7 @@ class UserController extends Controller
                     'file_npwp'        => $user->identity?->file_npwp,
                     'file_ktp_notaris' => $user->identity?->file_ktp_notaris,
                     'file_sign'        => $user->identity?->file_sign,
+                    'file_initial'        => $user->identity?->file_initial,
                     'file_photo'       => $user->identity?->file_photo,
                     'created_at'       => $user->identity?->created_at,
                     'updated_at'       => $user->identity?->updated_at,
@@ -230,6 +231,7 @@ class UserController extends Controller
                         'file_npwp_path',
                         'file_ktp_notaris_path',
                         'file_sign_path',
+                        'file_initial_path',
                         'file_photo_path',
                     ] as $field
                 ) {
@@ -312,6 +314,7 @@ class UserController extends Controller
                     'file_npwp'        => $identity?->file_npwp,
                     'file_ktp_notaris' => $identity?->file_ktp_notaris,
                     'file_sign'        => $identity?->file_sign,
+                    'file_initial'        => $identity?->file_initial,
                     'file_photo'       => $identity?->file_photo,
                     'created_at'       => $identity?->created_at,
                     'updated_at'       => $identity?->updated_at,
@@ -356,6 +359,7 @@ class UserController extends Controller
                     'file_npwp'        => $identity?->file_npwp,
                     'file_ktp_notaris' => $identity?->file_ktp_notaris,
                     'file_sign'        => $identity?->file_sign,
+                    'file_initial'     => $identity?->file_initial,
                     'file_photo'       => $identity?->file_photo,
                     'created_at'       => $identity?->created_at,
                     'updated_at'       => $identity?->updated_at,
@@ -458,6 +462,7 @@ class UserController extends Controller
             'file_npwp'        => 'sometimes|file|mimes:jpg,jpeg,png,pdf|max:2048',
             'file_ktp_notaris' => 'sometimes|file|mimes:jpg,jpeg,png,pdf|max:2048',
             'file_sign'        => 'sometimes|file|mimes:png|max:1024',
+            'file_initial'        => 'sometimes|file|mimes:png|max:1024',
             'file_photo'       => 'sometimes|file|mimes:jpg,jpeg,png|max:2048',
         ], [
             'ktp.required' => 'NIK wajib diisi.',
@@ -470,6 +475,8 @@ class UserController extends Controller
             'file_ktp_notaris.mimes' => 'File KTP Notaris harus JPG, JPEG, PNG, atau PDF.',
             'file_sign.mimes' => 'Tanda tangan hanya diperbolehkan PNG.',
             'file_sign.max'   => 'Ukuran tanda tangan maksimal 1 MB.',
+            'file_initial.mimes' => 'Paraf hanya diperbolehkan PNG.',
+            'file_initial.max'   => 'Ukuran Paraf maksimal 1 MB.',
             'file_photo.mimes' => 'Foto formal hanya JPG, JPEG, atau PNG.',
             'file_photo.max'  => 'Ukuran foto formal maksimal 2 MB.',
         ]);
@@ -525,6 +532,7 @@ class UserController extends Controller
                     'file_npwp'        => 'npwp',
                     'file_ktp_notaris' => 'ktp_notaris',
                     'file_sign'        => 'sign',
+                    'file_initial'     => 'initial',
                     'file_photo'       => 'photo',
                 ];
 
@@ -598,6 +606,8 @@ class UserController extends Controller
                         'file_ktp_notaris_path' => $identity->file_ktp_notaris_path,
                         'file_sign'          => $identity->file_sign,
                         'file_sign_path'     => $identity->file_sign_path,
+                        'file_initial'          => $identity->file_initial,
+                        'file_initial_path'     => $identity->file_initial_path,
                         'file_photo'         => $identity->file_photo,
                         'file_photo_path'    => $identity->file_photo_path,
 
