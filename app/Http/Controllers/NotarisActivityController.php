@@ -318,12 +318,92 @@ class NotarisActivityController extends Controller
     //     ], 200);
     // }
 
+    // public function index(Request $request)
+    // {
+    //     $user           = $request->user();
+    //     $search         = trim((string)$request->query('search', ''));
+    //     $approvalStatus = $request->query('status');
+    //     $perPage        = (int)($request->query('per_page', 10)) ?: 10;
+    //     $filterNotarisId = $request->query('notaris_id');
+
+    //     $query = Activity::query()
+    //         ->select(['id', 'user_notaris_id', 'deed_id', 'tracking_code', 'name', 'created_at', 'updated_at'])
+    //         ->with([
+    //             'deed:id,name',
+    //             'notaris:id,name',
+    //         ])
+    //         // hitung jumlah penghadap & status per activity via DB:
+    //         ->withCount([
+    //             'clients', // -> clients_count
+    //             'clientActivities as approved_count' => fn($q) => $q->where('status_approval', 'approved'),
+    //             'clientActivities as rejected_count' => fn($q) => $q->where('status_approval', 'rejected'),
+    //             'clientActivities as pending_count'  => fn($q) => $q->where('status_approval', 'pending'),
+    //         ]);
+
+    //     if ((int)$user->role_id !== 1) {
+    //         $query->where('user_notaris_id', $user->id);
+    //     } else {
+    //         $query->where('user_notaris_id', '!=', $user->id);
+    //         if (!empty($filterNotarisId)) {
+    //             $query->where('user_notaris_id', (int)$filterNotarisId);
+    //         }
+    //     }
+
+    //     if ($search !== '') {
+    //         $query->where(function ($sub) use ($search) {
+    //             $sub->where('tracking_code', 'like', "%{$search}%")
+    //                 ->orWhere('name', 'like', "%{$search}%")
+    //                 ->orWhereHas('deed', function ($q) use ($search) {
+    //                     $q->where('name', 'like', "%{$search}%");
+    //                 });
+    //         });
+    //     }
+
+    //     if ($approvalStatus && in_array($approvalStatus, ['pending', 'approved', 'rejected'], true)) {
+    //         $query->having(function ($q) use ($approvalStatus) {
+    //             if ($approvalStatus === 'approved') {
+    //                 // Semua approved: ada approved, tidak ada pending & tidak ada rejected
+    //                 $q->having('approved_count', '>', 0)
+    //                     ->having('rejected_count', '=', 0)
+    //                     ->having('pending_count', '=', 0);
+    //             } elseif ($approvalStatus === 'rejected') {
+    //                 // Minimal ada 1 rejected
+    //                 $q->having('rejected_count', '>', 0);
+    //             } else {
+    //                 // Pending: ada pending dan tidak ada rejected
+    //                 $q->having('pending_count', '>', 0)
+    //                     ->having('rejected_count', '=', 0);
+    //             }
+    //         });
+    //     }
+
+
+    //     // gunakan index: kalau belum ada index created_at, pakai id
+    //     $activities = $query->orderByDesc('created_at')->paginate($perPage);
+
+    //     // output tetap sama struktur meta/data seperti sekarang
+    //     return response()->json([
+    //         'success' => true,
+    //         'message' => 'Daftar aktivitas berhasil diambil',
+    //         'data'    => $activities->items(),
+    //         'meta'    => [
+    //             'current_page' => $activities->currentPage(),
+    //             'per_page'     => $activities->perPage(),
+    //             'total'        => $activities->total(),
+    //             'last_page'    => $activities->lastPage(),
+    //             'from'         => $activities->firstItem(),
+    //             'to'           => $activities->lastItem(),
+    //         ]
+    //     ], 200);
+    // }
+
     public function index(Request $request)
     {
-        $user           = $request->user();
-        $search         = trim((string)$request->query('search', ''));
-        $approvalStatus = $request->query('status');
-        $perPage        = (int)($request->query('per_page', 10)) ?: 10;
+        $user            = $request->user();
+        $search          = trim((string) $request->query('search', ''));
+        $approvalStatus  = $request->query('status');
+        $perPage         = (int) $request->query('per_page', 10) ?: 10;
+        $perPage         = min(max($perPage, 1), 100); // 1..100
         $filterNotarisId = $request->query('notaris_id');
 
         $query = Activity::query()
@@ -332,69 +412,64 @@ class NotarisActivityController extends Controller
                 'deed:id,name',
                 'notaris:id,name',
             ])
-            // hitung jumlah penghadap & status per activity via DB:
             ->withCount([
-                'clients', // -> clients_count
+                'clients',
                 'clientActivities as approved_count' => fn($q) => $q->where('status_approval', 'approved'),
                 'clientActivities as rejected_count' => fn($q) => $q->where('status_approval', 'rejected'),
                 'clientActivities as pending_count'  => fn($q) => $q->where('status_approval', 'pending'),
             ]);
 
-        if ((int)$user->role_id !== 1) {
+        // Role filter
+        if ((int) $user->role_id !== 1) {
             $query->where('user_notaris_id', $user->id);
         } else {
             $query->where('user_notaris_id', '!=', $user->id);
             if (!empty($filterNotarisId)) {
-                $query->where('user_notaris_id', (int)$filterNotarisId);
+                $query->where('user_notaris_id', (int) $filterNotarisId);
             }
         }
 
+        // Search
         if ($search !== '') {
             $query->where(function ($sub) use ($search) {
                 $sub->where('tracking_code', 'like', "%{$search}%")
                     ->orWhere('name', 'like', "%{$search}%")
-                    ->orWhereHas('deed', function ($q) use ($search) {
-                        $q->where('name', 'like', "%{$search}%");
-                    });
+                    ->orWhereHas('deed', fn($q) => $q->where('name', 'like', "%{$search}%"));
             });
         }
 
-        if ($approvalStatus && in_array($approvalStatus, ['pending', 'approved', 'rejected'], true)) {
-            $query->having(function ($q) use ($approvalStatus) {
+        // Filter status via EXISTS (lebih index-friendly)
+        if (in_array($approvalStatus, ['pending', 'approved', 'rejected'], true)) {
+            $query->where(function ($q) use ($approvalStatus) {
                 if ($approvalStatus === 'approved') {
-                    // Semua approved: ada approved, tidak ada pending & tidak ada rejected
-                    $q->having('approved_count', '>', 0)
-                        ->having('rejected_count', '=', 0)
-                        ->having('pending_count', '=', 0);
+                    // ada approved, tidak ada pending & tidak ada rejected
+                    $q->whereExists(fn($ex) => $ex->from('client_activities')
+                        ->whereColumn('client_activities.activity_id', 'activities.id')
+                        ->where('client_activities.status_approval', 'approved'))
+                        ->whereNotExists(fn($ex) => $ex->from('client_activities')
+                            ->whereColumn('client_activities.activity_id', 'activities.id')
+                            ->whereIn('client_activities.status_approval', ['pending', 'rejected']));
                 } elseif ($approvalStatus === 'rejected') {
-                    // Minimal ada 1 rejected
-                    $q->having('rejected_count', '>', 0);
-                } else {
-                    // Pending: ada pending dan tidak ada rejected
-                    $q->having('pending_count', '>', 0)
-                        ->having('rejected_count', '=', 0);
+                    $q->whereExists(fn($ex) => $ex->from('client_activities')
+                        ->whereColumn('client_activities.activity_id', 'activities.id')
+                        ->where('client_activities.status_approval', 'rejected'));
+                } else { // pending
+                    $q->whereExists(fn($ex) => $ex->from('client_activities')
+                        ->whereColumn('client_activities.activity_id', 'activities.id')
+                        ->where('client_activities.status_approval', 'pending'))
+                        ->whereNotExists(fn($ex) => $ex->from('client_activities')
+                            ->whereColumn('client_activities.activity_id', 'activities.id')
+                            ->where('client_activities.status_approval', 'rejected'));
                 }
             });
         }
 
+        $query->orderByDesc('created_at');
 
-        // gunakan index: kalau belum ada index created_at, pakai id
-        $activities = $query->orderByDesc('created_at')->paginate($perPage);
+        // Pilih paginate atau simplePaginate
+        $data = $query->paginate($perPage);
 
-        // output tetap sama struktur meta/data seperti sekarang
-        return response()->json([
-            'success' => true,
-            'message' => 'Daftar aktivitas berhasil diambil',
-            'data'    => $activities->items(),
-            'meta'    => [
-                'current_page' => $activities->currentPage(),
-                'per_page'     => $activities->perPage(),
-                'total'        => $activities->total(),
-                'last_page'    => $activities->lastPage(),
-                'from'         => $activities->firstItem(),
-                'to'           => $activities->lastItem(),
-            ]
-        ], 200);
+        return response()->json($data);
     }
 
 
