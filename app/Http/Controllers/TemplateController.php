@@ -11,6 +11,8 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
 use CloudinaryLabs\CloudinaryLaravel\Facades\Cloudinary;
+use App\Models\User;
+use Illuminate\Database\Eloquent\Builder;
 
 class TemplateController extends Controller
 {
@@ -32,18 +34,59 @@ class TemplateController extends Controller
      *  - Admin: semua
      *  - Notaris: milik sendiri + milik admin
      * ======================*/
-    private function visibleTemplatesQuery($user)
+    // private function visibleTemplatesQuery($user)
+    // {
+    //     if ($user->isAdmin()) {
+    //         return Template::query(); // semua
+    //     }
+
+    //     // Notaris: own OR admin-owned
+    //     return Template::where(function ($q) use ($user) {
+    //         $q->where('user_id', $user->id)
+    //             ->orWhereIn('user_id', function ($sub) {
+    //                 $sub->select('id')->from('users')->where('role_id', 1); // admin
+    //             });
+    //     });
+    // }
+
+    private function visibleTemplatesQuery(User $user): Builder
     {
+        // set true kalau mau ikut tampilkan template publik (user_id = NULL)
+        $includePublic = false;
+
+        // ADMIN (role_id = 1): hanya template miliknya sendiri (+ opsional publik)
         if ($user->isAdmin()) {
-            return Template::query(); // semua
+            return Template::query()->where(function ($w) use ($user, $includePublic) {
+                $w->where('user_id', $user->id);
+                if ($includePublic) {
+                    $w->orWhereNull('user_id');
+                }
+            });
         }
 
-        // Notaris: own OR admin-owned
-        return Template::where(function ($q) use ($user) {
-            $q->where('user_id', $user->id)
-                ->orWhereIn('user_id', function ($sub) {
-                    $sub->select('id')->from('users')->where('role_id', 1); // admin
-                });
+        // NOTARIS (role_id = 3): miliknya sendiri + milik semua admin (+ opsional publik)
+        if ((int)$user->role_id === 3) {
+            return Template::query()->where(function ($w) use ($user, $includePublic) {
+                $w->where('user_id', $user->id)
+                    ->orWhereIn('user_id', function ($sub) {
+                        $sub->select('id')->from('users')->where('role_id', 1);
+                    });
+
+                if ($includePublic) {
+                    $w->orWhereNull('user_id');
+                }
+            });
+        }
+
+        // ROLE lain (opsional): hanya milik admin (+ opsional publik)
+        return Template::query()->where(function ($w) use ($includePublic) {
+            $w->orWhereIn('user_id', function ($sub) {
+                $sub->select('id')->from('users')->where('role_id', 1);
+            });
+
+            if ($includePublic) {
+                $w->orWhereNull('user_id');
+            }
         });
     }
 

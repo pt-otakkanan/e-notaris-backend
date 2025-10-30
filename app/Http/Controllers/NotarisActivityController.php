@@ -239,42 +239,117 @@ class NotarisActivityController extends Controller
         ], 200);
     }
 
+    // public function index(Request $request)
+    // {
+    //     $user           = $request->user();
+    //     $search         = $request->query('search');
+    //     $approvalStatus = $request->query('status');
+    //     $perPage        = (int)($request->query('per_page', 10)) ?: 10;
 
-    // App\Http\Controllers\NotarisActivityController.php
+    //     // Opsional: khusus admin, bisa filter by notaris_id
+    //     $filterNotarisId = $request->query('notaris_id');
+
+    //     $query = Activity::with([
+    //         'deed',
+    //         'notaris',
+    //         'track',
+    //         'clients:id,name,email',
+    //         'clientActivities',
+    //         'schedules'
+    //     ]);
+
+    //     if ((int)$user->role_id !== 1) {
+    //         // NOTARIS: hanya miliknya sendiri
+    //         $query->where('user_notaris_id', $user->id);
+    //     } else {
+    //         // ADMIN: lihat semua KECUALI proyek admin sendiri
+    //         $query->where('user_notaris_id', '!=', $user->id);
+
+    //         // Jika admin memberi filter notaris_id, terapkan juga (tetap exclude own)
+    //         if (!empty($filterNotarisId)) {
+    //             $query->where('user_notaris_id', (int)$filterNotarisId);
+    //         }
+    //     }
+
+    //     if ($search) {
+    //         $query->where(function ($sub) use ($search) {
+    //             $sub->where('tracking_code', 'like', "%{$search}%")
+    //                 ->orWhere('name', 'like', "%{$search}%")
+    //                 ->orWhereHas('deed', function ($q) use ($search) {
+    //                     $q->where('name', 'like', "%{$search}%");
+    //                 });
+    //         });
+    //     }
+
+    //     if ($approvalStatus && in_array($approvalStatus, ['pending', 'approved', 'rejected'], true)) {
+    //         $query->where(function ($q) use ($approvalStatus) {
+    //             if ($approvalStatus === 'approved') {
+    //                 $q->whereDoesntHave('clientActivities', function ($h) {
+    //                     $h->where('status_approval', '!=', 'approved');
+    //                 });
+    //             } elseif ($approvalStatus === 'rejected') {
+    //                 $q->whereHas('clientActivities', function ($h) {
+    //                     $h->where('status_approval', 'rejected');
+    //                 });
+    //             } else {
+    //                 $q->whereHas('clientActivities', function ($h) {
+    //                     $h->where('status_approval', 'pending');
+    //                 })->whereDoesntHave('clientActivities', function ($h) {
+    //                     $h->where('status_approval', 'rejected');
+    //                 });
+    //             }
+    //         });
+    //     }
+
+    //     $activities = $query->orderBy('created_at', 'desc')->paginate($perPage);
+
+    //     return response()->json([
+    //         'success' => true,
+    //         'message' => 'Daftar aktivitas berhasil diambil',
+    //         'data'    => $activities->items(),
+    //         'meta'    => [
+    //             'current_page' => $activities->currentPage(),
+    //             'per_page'     => $activities->perPage(),
+    //             'total'        => $activities->total(),
+    //             'last_page'    => $activities->lastPage(),
+    //             'from'         => $activities->firstItem(),
+    //             'to'           => $activities->lastItem(),
+    //         ]
+    //     ], 200);
+    // }
 
     public function index(Request $request)
     {
         $user           = $request->user();
-        $search         = $request->query('search');
+        $search         = trim((string)$request->query('search', ''));
         $approvalStatus = $request->query('status');
         $perPage        = (int)($request->query('per_page', 10)) ?: 10;
-
-        // Opsional: khusus admin, bisa filter by notaris_id
         $filterNotarisId = $request->query('notaris_id');
 
-        $query = Activity::with([
-            'deed',
-            'notaris',
-            'track',
-            'clients:id,name,email',
-            'clientActivities',
-            'schedules'
-        ]);
+        $query = Activity::query()
+            ->select(['id', 'user_notaris_id', 'deed_id', 'tracking_code', 'name', 'created_at', 'updated_at'])
+            ->with([
+                'deed:id,name',
+                'notaris:id,name',
+            ])
+            // hitung jumlah penghadap & status per activity via DB:
+            ->withCount([
+                'clients', // -> clients_count
+                'clientActivities as approved_count' => fn($q) => $q->where('status_approval', 'approved'),
+                'clientActivities as rejected_count' => fn($q) => $q->where('status_approval', 'rejected'),
+                'clientActivities as pending_count'  => fn($q) => $q->where('status_approval', 'pending'),
+            ]);
 
         if ((int)$user->role_id !== 1) {
-            // NOTARIS: hanya miliknya sendiri
             $query->where('user_notaris_id', $user->id);
         } else {
-            // ADMIN: lihat semua KECUALI proyek admin sendiri
             $query->where('user_notaris_id', '!=', $user->id);
-
-            // Jika admin memberi filter notaris_id, terapkan juga (tetap exclude own)
             if (!empty($filterNotarisId)) {
                 $query->where('user_notaris_id', (int)$filterNotarisId);
             }
         }
 
-        if ($search) {
+        if ($search !== '') {
             $query->where(function ($sub) use ($search) {
                 $sub->where('tracking_code', 'like', "%{$search}%")
                     ->orWhere('name', 'like', "%{$search}%")
@@ -285,27 +360,28 @@ class NotarisActivityController extends Controller
         }
 
         if ($approvalStatus && in_array($approvalStatus, ['pending', 'approved', 'rejected'], true)) {
-            $query->where(function ($q) use ($approvalStatus) {
+            $query->having(function ($q) use ($approvalStatus) {
                 if ($approvalStatus === 'approved') {
-                    $q->whereDoesntHave('clientActivities', function ($h) {
-                        $h->where('status_approval', '!=', 'approved');
-                    });
+                    // Semua approved: ada approved, tidak ada pending & tidak ada rejected
+                    $q->having('approved_count', '>', 0)
+                        ->having('rejected_count', '=', 0)
+                        ->having('pending_count', '=', 0);
                 } elseif ($approvalStatus === 'rejected') {
-                    $q->whereHas('clientActivities', function ($h) {
-                        $h->where('status_approval', 'rejected');
-                    });
+                    // Minimal ada 1 rejected
+                    $q->having('rejected_count', '>', 0);
                 } else {
-                    $q->whereHas('clientActivities', function ($h) {
-                        $h->where('status_approval', 'pending');
-                    })->whereDoesntHave('clientActivities', function ($h) {
-                        $h->where('status_approval', 'rejected');
-                    });
+                    // Pending: ada pending dan tidak ada rejected
+                    $q->having('pending_count', '>', 0)
+                        ->having('rejected_count', '=', 0);
                 }
             });
         }
 
-        $activities = $query->orderBy('created_at', 'desc')->paginate($perPage);
 
+        // gunakan index: kalau belum ada index created_at, pakai id
+        $activities = $query->orderByDesc('created_at')->paginate($perPage);
+
+        // output tetap sama struktur meta/data seperti sekarang
         return response()->json([
             'success' => true,
             'message' => 'Daftar aktivitas berhasil diambil',
@@ -320,6 +396,7 @@ class NotarisActivityController extends Controller
             ]
         ], 200);
     }
+
 
     /**
      * Admin-only: daftar proyek milik admin sendiri (user_notaris_id = admin.id)

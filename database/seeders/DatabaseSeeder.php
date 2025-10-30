@@ -9,6 +9,8 @@ use Illuminate\Database\Seeder;
 use Database\Seeders\DeedSeeder;
 use Illuminate\Support\Facades\Hash;
 use Database\Seeders\TemplatesTableSeeder;
+use Database\Seeders\PartnersTableSeeder;
+use Database\Seeders\SettingsTableSeeder;
 
 class DatabaseSeeder extends Seeder
 {
@@ -142,6 +144,7 @@ class DatabaseSeeder extends Seeder
             $fileKk         = $this->ph("KK User {$user->id}");
             $fileNpwp       = $this->ph("NPWP User {$user->id}");
             $fileSign       = $this->ph("SIGN User {$user->id}");
+            $fileInitial    = $this->ph("Initial User {$user->id}");
             $filePhoto      = $this->ph("PHOTO User {$user->id}");
             $fileKtpNotaris = $this->ph("KTP NOTARIS User {$user->id}");
 
@@ -167,6 +170,9 @@ class DatabaseSeeder extends Seeder
                     'file_sign'             => $fileSign,
                     'file_sign_path'        => "seed/users/{$user->id}/identity/sign.png",
 
+                    'file_initial'             => $fileInitial,
+                    'file_initial_path'        => "seed/users/{$user->id}/identity/initial.png",
+
                     'file_photo'            => $filePhoto,
                     'file_photo_path'       => "seed/users/{$user->id}/identity/photo.jpg",
                 ]
@@ -176,6 +182,8 @@ class DatabaseSeeder extends Seeder
         }
 
         $this->call(DeedSeeder::class);
+        $this->call(PartnersTableSeeder::class);
+        $this->call(SettingsTableSeeder::class);
     }
 
     private function ph(string $label): string
