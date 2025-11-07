@@ -155,25 +155,25 @@ class DatabaseSeeder extends Seeder
                     'npwp'                  => $this->digits(15),
                     'ktp_notaris'           => ($user->role_id == 3) ? $this->digits(16) : null,
 
-                    'file_ktp'              => $fileKtp,
+                    'file_ktp'              => "https://res.cloudinary.com/dr1qyzdld/image/upload/v1762138252/enotaris/users/3/identity/ktp/ktp_1762138246_bExv1Axz.jpg",
                     'file_ktp_path'         => "seed/users/{$user->id}/identity/ktp.jpg",
 
-                    'file_kk'               => $fileKk,
+                    'file_kk'               => "https://res.cloudinary.com/dr1qyzdld/image/upload/v1762138255/enotaris/users/3/identity/kk/kk_1762138253_N5TPlJTR.jpg",
                     'file_kk_path'          => "seed/users/{$user->id}/identity/kk.jpg",
 
-                    'file_npwp'             => $fileNpwp,
-                    'file_npwp_path'        => "seed/users/{$user->id}/identity/npwp.jpg",
+                    // 'file_npwp'             => $fileNpwp,
+                    // 'file_npwp_path'        => "seed/users/{$user->id}/identity/npwp.jpg",
 
-                    'file_ktp_notaris'      => $fileKtpNotaris,
-                    'file_ktp_notaris_path' => "seed/users/{$user->id}/identity/ktp_notaris.jpg",
+                    // 'file_ktp_notaris'      => $fileKtpNotaris,
+                    // 'file_ktp_notaris_path' => "seed/users/{$user->id}/identity/ktp_notaris.jpg",
 
-                    'file_sign'             => $fileSign,
+                    'file_sign'             => "https://res.cloudinary.com/dr1qyzdld/image/upload/v1761623495/enotaris/users/2/identity/sign/sign_1761623492_fy7OdBy5.png",
                     'file_sign_path'        => "seed/users/{$user->id}/identity/sign.png",
 
-                    'file_initial'             => $fileInitial,
+                    'file_initial'             => "https://res.cloudinary.com/dr1qyzdld/image/upload/v1761623498/enotaris/users/2/identity/initial/initial_1761623497_sqZSieSh.png",
                     'file_initial_path'        => "seed/users/{$user->id}/identity/initial.png",
 
-                    'file_photo'            => $filePhoto,
+                    'file_photo'            => "https://res.cloudinary.com/dr1qyzdld/image/upload/v1762138260/enotaris/users/3/identity/photo/photo_1762138257_2L0TPUEJ.png",
                     'file_photo_path'       => "seed/users/{$user->id}/identity/photo.jpg",
                 ]
             );
