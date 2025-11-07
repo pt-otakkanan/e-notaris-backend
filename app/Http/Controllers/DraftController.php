@@ -374,16 +374,17 @@ class DraftController extends Controller
             }
 
             // 2) Ambil HTML FINAL dari request (prioritas: html_rendered → html → DB)
-            $htmlRendered = (string) $request->input(
-                'html_rendered',
-                (string) $request->input('html', '')
-            );
+            $htmlRendered = (string) $request->input('html_rendered', (string) $request->input('html', ''));
             if (!trim($htmlRendered)) {
                 $htmlRendered = (string) ($draft->custom_value_template ?? '');
             }
             if (!trim($htmlRendered)) {
                 return response()->json(['success' => false, 'message' => 'HTML kosong.'], 422);
             }
+
+            // (Opsional) Singkirkan elemen helper Quill yang tidak perlu dibawa ke PDF
+            // seperti <span class="ql-ui" ...></span>
+            $htmlRendered = preg_replace('/<span[^>]*class="[^"]*ql-ui[^"]*"[^>]*>\s*<\/span>/i', '', $htmlRendered);
 
             // ===== Helper: cari token yang belum terganti
             $findUnreplacedTokens = function (string $html) {
@@ -464,22 +465,50 @@ class DraftController extends Controller
             $mb = round($o['margins_mm']['bottom'] * $MM_TO_PT) . 'pt';
             $ml = round($o['margins_mm']['left']   * $MM_TO_PT) . 'pt';
 
-            // 5) CSS minimum (aman untuk Dompdf)
+            // 5) CSS minimum (aman untuk Dompdf) + dukungan Quill indent
             $css = <<<CSS
 @page { size: {$o['page_size']} {$o['orientation']}; margin: {$mt} {$mr} {$mb} {$ml}; }
+html, body { height: 100%; }
 body { font-family: {$fontStack}; font-size: {$fs}pt; line-height: 1.6; color:#000; margin:0; padding:0; }
 h1,h2,h3,h4,h5,h6{ margin:0 0 10px; font-weight:bold; }
 p{ margin:0 0 8px; text-align:justify; }
-ul,ol{ margin:0 0 12px 22px; padding:0; }
+ul,ol{ margin:0 0 12px 22px; padding:0; list-style-position: outside; }
 li{ margin-bottom: 4px; }
+
+/* jaga spasi & line-break */
+.preserve-space { white-space: pre-wrap; }
+
 /* hanya untuk tabel parties */
 .parties-table { width:100%; border-collapse:collapse; margin:0; }
 .parties-table td,
 .parties-table th { border:1px solid #000; padding:6px 8px; text-align:left; }
 .parties-table th { font-weight:bold; background:#f5f5f5; }
-.ql-align-center{text-align:center;} .ql-align-right{text-align:right;}
-.ql-align-left{text-align:left;} .ql-align-justify{text-align:justify;}
-strong,b{ font-weight:bold; } em,i{ font-style:italic; } u{ text-decoration:underline; }
+
+/* Align Quill */
+.ql-align-center{text-align:center;}
+.ql-align-right{text-align:right;}
+.ql-align-left{text-align:left;}
+.ql-align-justify{text-align:justify;}
+
+
+/* ===== Quill indent support (p & li) ===== */
+p.ql-indent-1, li.ql-indent-1 { margin-left: 3em; }
+p.ql-indent-2, li.ql-indent-2 { margin-left: 6em; }
+p.ql-indent-3, li.ql-indent-3 { margin-left: 9em; }
+p.ql-indent-4, li.ql-indent-4 { margin-left: 12em; }
+p.ql-indent-5, li.ql-indent-5 { margin-left: 15em; }
+p.ql-indent-6, li.ql-indent-6 { margin-left: 18em; }
+p.ql-indent-7, li.ql-indent-7 { margin-left: 21em; }
+p.ql-indent-8, li.ql-indent-8 { margin-left: 24em; }
+p.ql-indent-9, li.ql-indent-9 { margin-left: 27em; }
+
+/* Sembunyikan marker internal Quill pada list */
+.ql-ui { display: none; }
+
+/* Bold/Italic/Underline basic */
+strong,b{ font-weight:bold; }
+em,i{ font-style:italic; }
+u{ text-decoration:underline; }
 CSS;
 
             $fullHtml = <<<HTML
