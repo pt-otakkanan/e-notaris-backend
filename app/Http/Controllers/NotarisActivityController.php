@@ -472,7 +472,6 @@ class NotarisActivityController extends Controller
         return response()->json($data);
     }
 
-
     /**
      * Admin-only: daftar proyek milik admin sendiri (user_notaris_id = admin.id)
      */
