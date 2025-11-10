@@ -15,6 +15,7 @@ use App\Mail\ClientActivityMail;
 use Illuminate\Support\Facades\DB;
 use App\Models\DocumentRequirement;
 use Illuminate\Support\Facades\Mail;
+use App\Models\DeedRequirementTemplate;
 use Illuminate\Support\Facades\Validator;
 use App\Models\Requirement;              // requirement milik activity
 
@@ -88,7 +89,6 @@ class NotarisActivityController extends Controller
     }
 
     // ---------- ADD USER (dengan email) ----------
-
     public function addUser(Request $request, $userid, $activityid)
     {
         $user = $request->user();
@@ -144,8 +144,53 @@ class NotarisActivityController extends Controller
                 'updated_at'      => $now,
             ]);
 
-            // 2) Ambil requirement milik ACTIVITY
-            $actReq = Requirement::where('activity_id', $activity->id)->get();
+            // 2) Ambil requirement milik ACTIVITY atau fallback ke template deed
+            $templates = DeedRequirementTemplate::where('deed_id', $activity->deed_id)
+                ->where('is_active', true)
+                ->get();
+
+            $docRows = [];
+            if ($templates->count()) {
+                foreach ($templates as $tmpl) {
+                    $docRows[] = [
+                        'activity_notaris_id'           => $activity->id,
+                        'user_id'                       => $userid,
+                        'deed_requirement_template_id'  => $tmpl->id,
+                        'requirement_id'                => $tmpl->requirement_id ?? null,
+                        'requirement_name'              => $tmpl->requirement_name,
+                        'is_file_snapshot'              => (bool)($tmpl->is_file_snapshot ?? false),
+                        'value'                         => null,
+                        'file'                          => null,
+                        'file_path'                     => null,
+                        'status_approval'               => 'pending',
+                        'created_at'                    => $lastOrder ? now() : now(),
+                        'updated_at'                    => now(),
+                    ];
+                }
+            } else {
+                // fallback: use Requirement records
+                $actReq = Requirement::where('activity_id', $activity->id)->get();
+                foreach ($actReq as $req) {
+                    $docRows[] = [
+                        'activity_notaris_id' => $activity->id,
+                        'user_id'             => $userid,
+                        'requirement_id'      => $req->id,
+                        'requirement_name'    => $req->name,
+                        'is_file_snapshot'    => (bool)$req->is_file,
+                        'value'               => null,
+                        'file'                => null,
+                        'file_path'           => null,
+                        'status_approval'     => 'pending',
+                        'created_at'          => now(),
+                        'updated_at'          => now(),
+                    ];
+                }
+            }
+
+            if (!empty($docRows)) {
+                DocumentRequirement::insert($docRows);
+            }
+
 
             // 3) Generate DocumentRequirement utk user baru
             if ($actReq->count()) {
@@ -238,164 +283,6 @@ class NotarisActivityController extends Controller
             'data'    => null
         ], 200);
     }
-
-    // public function index(Request $request)
-    // {
-    //     $user           = $request->user();
-    //     $search         = $request->query('search');
-    //     $approvalStatus = $request->query('status');
-    //     $perPage        = (int)($request->query('per_page', 10)) ?: 10;
-
-    //     // Opsional: khusus admin, bisa filter by notaris_id
-    //     $filterNotarisId = $request->query('notaris_id');
-
-    //     $query = Activity::with([
-    //         'deed',
-    //         'notaris',
-    //         'track',
-    //         'clients:id,name,email',
-    //         'clientActivities',
-    //         'schedules'
-    //     ]);
-
-    //     if ((int)$user->role_id !== 1) {
-    //         // NOTARIS: hanya miliknya sendiri
-    //         $query->where('user_notaris_id', $user->id);
-    //     } else {
-    //         // ADMIN: lihat semua KECUALI proyek admin sendiri
-    //         $query->where('user_notaris_id', '!=', $user->id);
-
-    //         // Jika admin memberi filter notaris_id, terapkan juga (tetap exclude own)
-    //         if (!empty($filterNotarisId)) {
-    //             $query->where('user_notaris_id', (int)$filterNotarisId);
-    //         }
-    //     }
-
-    //     if ($search) {
-    //         $query->where(function ($sub) use ($search) {
-    //             $sub->where('tracking_code', 'like', "%{$search}%")
-    //                 ->orWhere('name', 'like', "%{$search}%")
-    //                 ->orWhereHas('deed', function ($q) use ($search) {
-    //                     $q->where('name', 'like', "%{$search}%");
-    //                 });
-    //         });
-    //     }
-
-    //     if ($approvalStatus && in_array($approvalStatus, ['pending', 'approved', 'rejected'], true)) {
-    //         $query->where(function ($q) use ($approvalStatus) {
-    //             if ($approvalStatus === 'approved') {
-    //                 $q->whereDoesntHave('clientActivities', function ($h) {
-    //                     $h->where('status_approval', '!=', 'approved');
-    //                 });
-    //             } elseif ($approvalStatus === 'rejected') {
-    //                 $q->whereHas('clientActivities', function ($h) {
-    //                     $h->where('status_approval', 'rejected');
-    //                 });
-    //             } else {
-    //                 $q->whereHas('clientActivities', function ($h) {
-    //                     $h->where('status_approval', 'pending');
-    //                 })->whereDoesntHave('clientActivities', function ($h) {
-    //                     $h->where('status_approval', 'rejected');
-    //                 });
-    //             }
-    //         });
-    //     }
-
-    //     $activities = $query->orderBy('created_at', 'desc')->paginate($perPage);
-
-    //     return response()->json([
-    //         'success' => true,
-    //         'message' => 'Daftar aktivitas berhasil diambil',
-    //         'data'    => $activities->items(),
-    //         'meta'    => [
-    //             'current_page' => $activities->currentPage(),
-    //             'per_page'     => $activities->perPage(),
-    //             'total'        => $activities->total(),
-    //             'last_page'    => $activities->lastPage(),
-    //             'from'         => $activities->firstItem(),
-    //             'to'           => $activities->lastItem(),
-    //         ]
-    //     ], 200);
-    // }
-
-    // public function index(Request $request)
-    // {
-    //     $user           = $request->user();
-    //     $search         = trim((string)$request->query('search', ''));
-    //     $approvalStatus = $request->query('status');
-    //     $perPage        = (int)($request->query('per_page', 10)) ?: 10;
-    //     $filterNotarisId = $request->query('notaris_id');
-
-    //     $query = Activity::query()
-    //         ->select(['id', 'user_notaris_id', 'deed_id', 'tracking_code', 'name', 'created_at', 'updated_at'])
-    //         ->with([
-    //             'deed:id,name',
-    //             'notaris:id,name',
-    //         ])
-    //         // hitung jumlah penghadap & status per activity via DB:
-    //         ->withCount([
-    //             'clients', // -> clients_count
-    //             'clientActivities as approved_count' => fn($q) => $q->where('status_approval', 'approved'),
-    //             'clientActivities as rejected_count' => fn($q) => $q->where('status_approval', 'rejected'),
-    //             'clientActivities as pending_count'  => fn($q) => $q->where('status_approval', 'pending'),
-    //         ]);
-
-    //     if ((int)$user->role_id !== 1) {
-    //         $query->where('user_notaris_id', $user->id);
-    //     } else {
-    //         $query->where('user_notaris_id', '!=', $user->id);
-    //         if (!empty($filterNotarisId)) {
-    //             $query->where('user_notaris_id', (int)$filterNotarisId);
-    //         }
-    //     }
-
-    //     if ($search !== '') {
-    //         $query->where(function ($sub) use ($search) {
-    //             $sub->where('tracking_code', 'like', "%{$search}%")
-    //                 ->orWhere('name', 'like', "%{$search}%")
-    //                 ->orWhereHas('deed', function ($q) use ($search) {
-    //                     $q->where('name', 'like', "%{$search}%");
-    //                 });
-    //         });
-    //     }
-
-    //     if ($approvalStatus && in_array($approvalStatus, ['pending', 'approved', 'rejected'], true)) {
-    //         $query->having(function ($q) use ($approvalStatus) {
-    //             if ($approvalStatus === 'approved') {
-    //                 // Semua approved: ada approved, tidak ada pending & tidak ada rejected
-    //                 $q->having('approved_count', '>', 0)
-    //                     ->having('rejected_count', '=', 0)
-    //                     ->having('pending_count', '=', 0);
-    //             } elseif ($approvalStatus === 'rejected') {
-    //                 // Minimal ada 1 rejected
-    //                 $q->having('rejected_count', '>', 0);
-    //             } else {
-    //                 // Pending: ada pending dan tidak ada rejected
-    //                 $q->having('pending_count', '>', 0)
-    //                     ->having('rejected_count', '=', 0);
-    //             }
-    //         });
-    //     }
-
-
-    //     // gunakan index: kalau belum ada index created_at, pakai id
-    //     $activities = $query->orderByDesc('created_at')->paginate($perPage);
-
-    //     // output tetap sama struktur meta/data seperti sekarang
-    //     return response()->json([
-    //         'success' => true,
-    //         'message' => 'Daftar aktivitas berhasil diambil',
-    //         'data'    => $activities->items(),
-    //         'meta'    => [
-    //             'current_page' => $activities->currentPage(),
-    //             'per_page'     => $activities->perPage(),
-    //             'total'        => $activities->total(),
-    //             'last_page'    => $activities->lastPage(),
-    //             'from'         => $activities->firstItem(),
-    //             'to'           => $activities->lastItem(),
-    //         ]
-    //     ], 200);
-    // }
 
     public function index(Request $request)
     {
@@ -708,28 +595,61 @@ class NotarisActivityController extends Controller
             }
 
             // 5) Generate DocumentRequirement per klien
-            $actReq = Requirement::where('activity_id', $activity->id)->get();
-            if ($actReq->count() && !empty($orderedClientIds)) {
-                $docRows = [];
-                foreach ($actReq as $req) {
+            // Prefer: gunakan DeedRequirementTemplate jika ada; kalau tidak ada gunakan Requirement (activity-level) yang mungkin dibuat dari request
+            $templates = DeedRequirementTemplate::where('deed_id', $deed->id)
+                ->where('is_active', true)
+                ->get();
+
+            $docRows = [];
+
+            if ($templates->count() && !empty($orderedClientIds)) {
+                // generate berdasar template
+                foreach ($templates as $tmpl) {
                     foreach ($orderedClientIds as $uid) {
                         $docRows[] = [
-                            'activity_notaris_id' => $activity->id,
-                            'user_id'             => $uid,
-                            'requirement_id'      => $req->id,
-                            'requirement_name'    => $req->name,
-                            'is_file_snapshot'    => (bool)$req->is_file,
-                            'value'               => null,
-                            'file'                => null,
-                            'file_path'           => null,
-                            'status_approval'     => 'pending',
-                            'created_at'          => $now,
-                            'updated_at'          => $now,
+                            'activity_notaris_id'           => $activity->id,
+                            'user_id'                       => $uid,
+                            'deed_requirement_template_id'  => $tmpl->id,
+                            'requirement_id'                => $tmpl->requirement_id ?? null,
+                            'requirement_name'              => $tmpl->requirement_name,
+                            'is_file_snapshot'              => (bool)($tmpl->is_file_snapshot ?? false),
+                            'value'                         => $tmpl->default_value ?? null,
+                            'file'                          => null,
+                            'file_path'                     => null,
+                            'status_approval'               => 'pending',
+                            'created_at'                    => $now,
+                            'updated_at'                    => $now,
                         ];
                     }
                 }
+            } else {
+                // fallback ke Requirement milik activity (yang dibuat di step 4)
+                $actReq = Requirement::where('activity_id', $activity->id)->get();
+                if ($actReq->count() && !empty($orderedClientIds)) {
+                    foreach ($actReq as $req) {
+                        foreach ($orderedClientIds as $uid) {
+                            $docRows[] = [
+                                'activity_notaris_id' => $activity->id,
+                                'user_id'             => $uid,
+                                'requirement_id'      => $req->id,
+                                'requirement_name'    => $req->name,
+                                'is_file_snapshot'    => (bool)$req->is_file,
+                                'value'               => null,
+                                'file'                => null,
+                                'file_path'           => null,
+                                'status_approval'     => 'pending',
+                                'created_at'          => $now,
+                                'updated_at'          => $now,
+                            ];
+                        }
+                    }
+                }
+            }
+
+            if (!empty($docRows)) {
                 DocumentRequirement::insert($docRows);
             }
+
 
             // 6) Draft & ClientDrafts
             $draft = DraftDeed::create([
@@ -900,28 +820,56 @@ class NotarisActivityController extends Controller
                 // Regen document requirements untuk kombinasi activity × klien
                 DocumentRequirement::where('activity_notaris_id', $activity->id)->delete();
 
-                $actReq = Requirement::where('activity_id', $activity->id)->get();
-                if ($actReq->count() && !empty($orderedClientIds)) {
-                    $docRows = [];
-                    foreach ($actReq as $req) {
+                // Prefer templates: ambil berdasarkan deed_id saat ini (sudah di-update jika ada perubahan deed)
+                $templates = DeedRequirementTemplate::where('deed_id', $activity->deed_id)
+                    ->where('is_active', true)
+                    ->get();
+
+                $docRows = [];
+
+                if ($templates->count() && !empty($orderedClientIds)) {
+                    foreach ($templates as $tmpl) {
                         foreach ($orderedClientIds as $uid) {
                             $docRows[] = [
-                                'activity_notaris_id' => $activity->id,
-                                'user_id'             => $uid,
-                                'requirement_id'      => $req->id,
-                                'requirement_name'    => $req->name,
-                                'is_file_snapshot'    => (bool)$req->is_file,
-                                'value'               => null,
-                                'file'                => null,
-                                'file_path'           => null,
-                                'status_approval'     => 'pending',
-                                'created_at'          => $now,
-                                'updated_at'          => $now,
+                                'activity_notaris_id'           => $activity->id,
+                                'user_id'                       => $uid,
+                                'deed_requirement_template_id'  => $tmpl->id,
+                                'requirement_id'                => $tmpl->requirement_id ?? null,
+                                'requirement_name'              => $tmpl->requirement_name,
+                                'is_file_snapshot'              => (bool)($tmpl->is_file_snapshot ?? false),
+                                'value'                         => $tmpl->default_value ?? null,
+                                'file'                          => null,
+                                'file_path'                     => null,
+                                'status_approval'               => 'pending',
+                                'created_at'                    => $now,
+                                'updated_at'                    => $now,
                             ];
                         }
                     }
-                    if ($docRows) DocumentRequirement::insert($docRows);
+                } else {
+                    $actReq = Requirement::where('activity_id', $activity->id)->get();
+                    if ($actReq->count() && !empty($orderedClientIds)) {
+                        foreach ($actReq as $req) {
+                            foreach ($orderedClientIds as $uid) {
+                                $docRows[] = [
+                                    'activity_notaris_id' => $activity->id,
+                                    'user_id'             => $uid,
+                                    'requirement_id'      => $req->id,
+                                    'requirement_name'    => $req->name,
+                                    'is_file_snapshot'    => (bool)$req->is_file,
+                                    'value'               => null,
+                                    'file'                => null,
+                                    'file_path'           => null,
+                                    'status_approval'     => 'pending',
+                                    'created_at'          => $now,
+                                    'updated_at'          => $now,
+                                ];
+                            }
+                        }
+                    }
                 }
+
+                if (!empty($docRows)) DocumentRequirement::insert($docRows);
 
                 // ===== Sinkronisasi CLIENT DRAFTS =====
                 $draft = DraftDeed::firstOrCreate(
@@ -1036,6 +984,7 @@ class NotarisActivityController extends Controller
             'data'    => $activity
         ], 200);
     }
+
 
     public function destroy(Request $request, $id)
     {

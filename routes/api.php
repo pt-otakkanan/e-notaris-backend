@@ -25,6 +25,7 @@ use App\Http\Controllers\EditorUploadController;
 use App\Http\Controllers\VerificationController;
 use App\Http\Controllers\MainValueDeedController;
 use App\Http\Controllers\ClientActivityController;
+use App\Http\Controllers\DeedRequirementTemplateController;
 use App\Http\Controllers\NotarisActivityController;
 use App\Http\Controllers\DocumentRequirementController;
 
@@ -136,6 +137,20 @@ Route::middleware('auth:sanctum')->group(function () {
     });
 });
 
+// routes/api.php (contoh)
+Route::prefix('deeds')->middleware(['auth:sanctum'])->group(function () {
+    Route::prefix('/{deedId}/requirement-templates')
+        ->middleware(['ability:admin,notaris'])
+        ->group(function () {
+            Route::get('/',                     [DeedRequirementTemplateController::class, 'index']);            // list templates
+            Route::post('/',                    [DeedRequirementTemplateController::class, 'store']);            // create template
+            Route::post('/{id}',                [DeedRequirementTemplateController::class, 'update']);           // update template
+            Route::delete('/{id}',              [DeedRequirementTemplateController::class, 'destroy']);          // delete template
+            Route::post('/{id}/toggle',         [DeedRequirementTemplateController::class, 'toggleActive']);     // toggle active
+        });
+});
+
+
 /*
 |--------------------------------------------------------------------------
 | Admin Area
@@ -221,6 +236,14 @@ Route::prefix('admin')->middleware(['auth:sanctum'])->group(function () {
         Route::post('/',                [RequirementController::class, 'store']);
         Route::post('/update/{id}',     [RequirementController::class, 'update']);
         Route::delete('/{id}',          [RequirementController::class, 'destroy']);
+    });
+
+    Route::prefix('requirement-template')->middleware('ability:admin,notaris')->group(function () {
+        Route::get('/',                 [DeedRequirementTemplateController::class, 'index']);
+        Route::get('/{id}',             [DeedRequirementTemplateController::class, 'show']);
+        Route::post('/',                [DeedRequirementTemplateController::class, 'store']);
+        Route::post('/update/{id}',     [DeedRequirementTemplateController::class, 'update']);
+        Route::delete('/{id}',          [DeedRequirementTemplateController::class, 'destroy']);
     });
 
     // User manajemen (admin)

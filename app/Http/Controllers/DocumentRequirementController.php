@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\DocumentRequirement;
 use App\Models\Activity;
+use App\Models\DeedRequirementTemplate;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 use CloudinaryLabs\CloudinaryLaravel\Facades\Cloudinary;
@@ -27,7 +28,7 @@ class DocumentRequirementController extends Controller
         $from       = $request->query('created_from'); // Y-m-d
         $to         = $request->query('created_to');   // Y-m-d
 
-        $query = DocumentRequirement::with(['activity', 'user', 'requirement'])
+        $query = DocumentRequirement::with(['activity', 'user', 'requirement', 'deedRequirementTemplate'])
             ->whereHas('activity', function ($sub) use ($user) {
                 $sub->where('user_notaris_id', $user->id)
                     ->orWhereHas('clients', function ($c) use ($user) {
@@ -80,7 +81,7 @@ class DocumentRequirementController extends Controller
         $from   = $request->query('created_from');
         $to     = $request->query('created_to');
 
-        $query = DocumentRequirement::with(['activity', 'user', 'requirement'])
+        $query = DocumentRequirement::with(['activity', 'user', 'requirement', 'deedRequirementTemplate'])
             ->where('activity_notaris_id', $id)
             ->whereHas('activity', function ($sub) use ($user) {
                 $sub->where('user_notaris_id', $user->id)
@@ -137,7 +138,7 @@ class DocumentRequirementController extends Controller
 
         $targetUserId = $request->query('user_id') ?: $user->id;
 
-        $docs = DocumentRequirement::with(['activity', 'user', 'requirement'])
+        $docs = DocumentRequirement::with(['activity', 'user', 'requirement', 'deedRequirementTemplate'])
             ->where('activity_notaris_id', $id)
             ->where('user_id', $targetUserId)
             ->get();
@@ -165,7 +166,7 @@ class DocumentRequirementController extends Controller
     {
         $user = $request->user();
 
-        $doc = DocumentRequirement::with(['activity', 'user', 'requirement'])
+        $doc = DocumentRequirement::with(['activity', 'user', 'requirement', 'deedRequirementTemplate'])
             ->whereHas('activity', function ($sub) use ($user) {
                 $sub->where('user_notaris_id', $user->id)
                     ->orWhereHas('clients', function ($c) use ($user) {
@@ -194,6 +195,7 @@ class DocumentRequirementController extends Controller
      * Body:
      * - activity_notaris_id (required, exists:activities,id)
      * - user_id (opsional; klien diabaikan & dipaksa = user login)
+     * - deed_requirement_template_id (opsional; jika dikirim, akan mengisi requirement_id/name dari template)
      * - value (nullable|string)
      * - file  (nullable|file)
      */
@@ -202,16 +204,19 @@ class DocumentRequirementController extends Controller
         $user = $request->user();
 
         $validator = Validator::make($request->all(), [
-            'activity_notaris_id' => 'required|integer|exists:activity,id',
-            'user_id'             => 'sometimes|integer|exists:users,id',
-            'value'               => 'nullable|string|max:1000',
-            'file'                => 'nullable|file|mimes:jpg,jpeg,png,webp,pdf,doc,docx|max:5120',
+            'activity_notaris_id'          => 'required|integer|exists:activity,id',
+            'user_id'                      => 'sometimes|integer|exists:users,id',
+            'deed_requirement_template_id' => 'sometimes|nullable|integer|exists:deed_requirement_templates,id',
+            'value'                        => 'nullable|string|max:1000',
+            'file'                         => 'nullable|file|mimes:jpg,jpeg,png,webp,pdf,doc,docx|max:5120',
         ], [
             'activity_notaris_id.required' => 'Aktivitas wajib dipilih.',
             'activity_notaris_id.integer'  => 'ID aktivitas harus berupa angka.',
             'activity_notaris_id.exists'   => 'Aktivitas tidak ditemukan.',
             'user_id.integer'              => 'ID pengguna harus berupa angka.',
             'user_id.exists'               => 'Pengguna tidak ditemukan.',
+            'deed_requirement_template_id.integer' => 'ID template harus berupa angka.',
+            'deed_requirement_template_id.exists'  => 'Template requirement tidak ditemukan.',
             'value.string'                 => 'Isi (value) harus berupa teks.',
             'value.max'                    => 'Isi (value) maksimal 1000 karakter.',
             'file.file'                    => 'File tidak valid.',
@@ -222,6 +227,7 @@ class DocumentRequirementController extends Controller
         $validator->setAttributeNames([
             'activity_notaris_id' => 'Aktivitas',
             'user_id'             => 'Pengguna',
+            'deed_requirement_template_id' => 'Template Persyaratan Akta',
             'value'               => 'Isi',
             'file'                => 'Berkas',
         ]);
@@ -282,6 +288,19 @@ class DocumentRequirementController extends Controller
         $data['user_id']         = $targetUserId;
         $data['status_approval'] = 'pending';
 
+        // Jika ada template id, ambil template untuk mengisi fields terkait requirement
+        if (!empty($data['deed_requirement_template_id'])) {
+            $template = DeedRequirementTemplate::find($data['deed_requirement_template_id']);
+            if ($template) {
+                // Map fields dari template
+                if (isset($template->requirement_id)) {
+                    $data['requirement_id'] = $template->requirement_id;
+                }
+                $data['requirement_name'] = $template->requirement_name ?? $data['requirement_name'] ?? null;
+                $data['is_file_snapshot'] = $template->is_file_snapshot ?? false;
+            }
+        }
+
         if ($request->hasFile('file')) {
             $publicId = 'req_' . time() . '_' . Str::random(8);
             $folder   = "enotaris/activities/{$data['activity_notaris_id']}/requirements/{$targetUserId}";
@@ -315,7 +334,7 @@ class DocumentRequirementController extends Controller
      */
     public function update(Request $request, $id)
     {
-        $doc = DocumentRequirement::with(['activity.clients'])->find($id);
+        $doc = DocumentRequirement::with(['activity.clients', 'deedRequirementTemplate'])->find($id);
         if (!$doc) {
             return response()->json([
                 'success' => false,
@@ -340,10 +359,11 @@ class DocumentRequirementController extends Controller
         }
 
         $validator = Validator::make($request->all(), [
-            'activity_notaris_id' => 'sometimes|integer|exists:activity,id',
-            'user_id'             => 'sometimes|integer|exists:users,id',
-            'value'               => 'nullable|string|max:1000',
-            'file'                => 'nullable|file|mimes:jpg,jpeg,png,webp,pdf,doc,docx|max:5120',
+            'activity_notaris_id'          => 'sometimes|integer|exists:activity,id',
+            'user_id'                      => 'sometimes|integer|exists:users,id',
+            // kita tidak mengizinkan mengubah deed_requirement_template_id lewat update supaya mapping tetap konsisten
+            'value'                        => 'nullable|string|max:1000',
+            'file'                         => 'nullable|file|mimes:jpg,jpeg,png,webp,pdf,doc,docx|max:5120',
         ], [
             'activity_notaris_id.integer'  => 'ID aktivitas harus berupa angka.',
             'activity_notaris_id.exists'   => 'Aktivitas tidak ditemukan.',
@@ -568,7 +588,7 @@ class DocumentRequirementController extends Controller
             ], 422);
         }
 
-        $docs = DocumentRequirement::with(['requirement'])
+        $docs = DocumentRequirement::with(['requirement', 'deedRequirementTemplate'])
             ->where('activity_notaris_id', $activity->id)
             ->where('user_id', (int) $idUser)
             ->orderBy('id', 'asc')
@@ -621,7 +641,7 @@ class DocumentRequirementController extends Controller
                 'activity' => [
                     'id'   => $activity->id,
                     'name' => $activity->name,
-                    'deed' => $activity->deed ?? null, // jika perlu, tambahkan eager load deed
+                    'deed' => $activity->deed ?? null,
                 ],
                 'users'    => $users,
             ],
