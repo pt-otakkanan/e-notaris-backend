@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Models\User;
+use App\Models\DeedRequirementTemplate;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 
@@ -41,5 +42,10 @@ class Deed extends Model
     public function requiredClientsCount(): int
     {
         return max(1, (int) $this->total_client);
+    }
+
+    public function requirements()
+    {
+        return $this->hasMany(DeedRequirementTemplate::class, 'deed_id');
     }
 }

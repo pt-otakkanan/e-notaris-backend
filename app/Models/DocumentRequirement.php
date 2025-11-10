@@ -57,4 +57,9 @@ class DocumentRequirement extends Model
     {
         return $query->where('status_approval', 'rejected');
     }
+
+    public function deedRequirementTemplate()
+    {
+        return $this->belongsTo(DeedRequirementTemplate::class);
+    }
 }
