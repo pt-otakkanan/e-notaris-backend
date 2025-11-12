@@ -440,7 +440,7 @@ class NotarisActivityController extends Controller
         $user = $request->user();
 
         $baseWith = [
-            'deed',
+            'deed.requirements',
             'requirements',
             'documentRequirements',
             'notaris.identity',
@@ -517,7 +517,7 @@ class NotarisActivityController extends Controller
 
         $data = $validasi->validated();
 
-        // Validasi role penghadap
+        // Validasi semua klien punya role penghadap (role_id == 2)
         $validIds = User::whereIn('id', $data['client_ids'])
             ->where('role_id', 2)
             ->pluck('id')
@@ -531,7 +531,7 @@ class NotarisActivityController extends Controller
             ], 422);
         }
 
-        // Urut sesuai FE
+        // Pertahankan urutan dari FE
         $orderedClientIds = [];
         foreach ($data['client_ids'] as $cid) {
             if (in_array($cid, $validIds, true)) $orderedClientIds[] = $cid;
@@ -539,177 +539,185 @@ class NotarisActivityController extends Controller
 
         $deed = Deed::find($data['deed_id']);
 
-        // ===== Transaksi: buat activity + semua turunannya =====
-        [$activity, $createdDraftId] = DB::transaction(function () use ($user, $deed, $data, $orderedClientIds) {
-            $now = now();
+        try {
+            [$activity, $draftId] = DB::transaction(function () use ($user, $deed, $data, $orderedClientIds) {
+                $now = now();
 
-            // 1) Activity
-            $activity = Activity::create([
-                'name'                => $data['name'],
-                'deed_id'             => $deed->id,
-                'user_notaris_id'     => $user->id,
-                'activity_notaris_id' => $user->id,
-                'tracking_code'       => 'ACT-' . strtoupper(Str::random(8)),
-            ]);
+                // 1) create activity
+                $activity = Activity::create([
+                    'name'                => $data['name'],
+                    'deed_id'             => $deed->id,
+                    'user_notaris_id'     => $user->id,
+                    'activity_notaris_id' => $user->id,
+                    'tracking_code'       => 'ACT-' . strtoupper(Str::random(8)),
+                ]);
 
-            // 2) Track
-            $track = Track::create([
-                'status_invite'   => 'done',
-                'status_respond'  => 'todo',
-                'status_docs'     => 'pending',
-                'status_draft'    => 'pending',
-                'status_schedule' => 'pending',
-                'status_sign'     => 'pending',
-                'status_print'    => 'pending',
-            ]);
-            $activity->update(['track_id' => $track->id]);
+                // 2) create track and link
+                $track = Track::create([
+                    'status_invite'   => 'done',
+                    'status_respond'  => 'todo',
+                    'status_docs'     => 'pending',
+                    'status_draft'    => 'pending',
+                    'status_schedule' => 'pending',
+                    'status_sign'     => 'pending',
+                    'status_print'    => 'pending',
+                ]);
+                $activity->update(['track_id' => $track->id]);
 
-            // 3) Pivot client_activity
-            $rows = [];
-            $ord  = 1;
-            foreach ($orderedClientIds as $uid) {
-                $rows[] = [
-                    'user_id'         => $uid,
-                    'activity_id'     => $activity->id,
-                    'status_approval' => 'pending',
-                    'order'           => $ord++,
-                    'created_at'      => $now,
-                    'updated_at'      => $now,
-                ];
-            }
-            ClientActivity::insert($rows);
-
-            // 4) Requirement awal milik activity (opsional)
-            if (!empty($data['requirements']) && is_array($data['requirements'])) {
-                $reqRows = [];
-                foreach ($data['requirements'] as $r) {
-                    $reqRows[] = [
-                        'activity_id' => $activity->id,
-                        'name'        => $r['name'],
-                        'is_file'     => (bool)$r['is_file'],
-                        'created_at'  => $now,
-                        'updated_at'  => $now,
-                    ];
-                }
-                Requirement::insert($reqRows);
-            }
-
-            // 5) Generate DocumentRequirement per klien
-            // Prefer: gunakan DeedRequirementTemplate jika ada; kalau tidak ada gunakan Requirement (activity-level) yang mungkin dibuat dari request
-            $templates = DeedRequirementTemplate::where('deed_id', $deed->id)
-                ->where('is_active', true)
-                ->get();
-
-            $docRows = [];
-
-            if ($templates->count() && !empty($orderedClientIds)) {
-                // generate berdasar template
-                foreach ($templates as $tmpl) {
-                    foreach ($orderedClientIds as $uid) {
-                        $docRows[] = [
-                            'activity_notaris_id'           => $activity->id,
-                            'user_id'                       => $uid,
-                            'deed_requirement_template_id'  => $tmpl->id,
-                            'requirement_id'                => $tmpl->requirement_id ?? null,
-                            'requirement_name'              => $tmpl->requirement_name,
-                            'is_file_snapshot'              => (bool)($tmpl->is_file_snapshot ?? false),
-                            'value'                         => $tmpl->default_value ?? null,
-                            'file'                          => null,
-                            'file_path'                     => null,
-                            'status_approval'               => 'pending',
-                            'created_at'                    => $now,
-                            'updated_at'                    => $now,
-                        ];
-                    }
-                }
-            } else {
-                // fallback ke Requirement milik activity (yang dibuat di step 4)
-                $actReq = Requirement::where('activity_id', $activity->id)->get();
-                if ($actReq->count() && !empty($orderedClientIds)) {
-                    foreach ($actReq as $req) {
-                        foreach ($orderedClientIds as $uid) {
-                            $docRows[] = [
-                                'activity_notaris_id' => $activity->id,
-                                'user_id'             => $uid,
-                                'requirement_id'      => $req->id,
-                                'requirement_name'    => $req->name,
-                                'is_file_snapshot'    => (bool)$req->is_file,
-                                'value'               => null,
-                                'file'                => null,
-                                'file_path'           => null,
-                                'status_approval'     => 'pending',
-                                'created_at'          => $now,
-                                'updated_at'          => $now,
-                            ];
-                        }
-                    }
-                }
-            }
-
-            if (!empty($docRows)) {
-                DocumentRequirement::insert($docRows);
-            }
-
-
-            // 6) Draft & ClientDrafts
-            $draft = DraftDeed::create([
-                'activity_id'           => $activity->id,
-                'reference_number'      => now()->format('md') . '/OK/' . $activity->tracking_code . '/' . now()->format('Y'),
-                'custom_value_template' => null,
-                'reading_schedule'      => null,
-                'status_approval'       => 'pending',
-                'file'                  => null,
-                'file_path'             => null,
-            ]);
-
-            if (!empty($orderedClientIds)) {
-                $cdRows = [];
+                // 3) pivot client_activity insert
+                $rows = [];
+                $ord  = 1;
                 foreach ($orderedClientIds as $uid) {
-                    $cdRows[] = [
+                    $rows[] = [
                         'user_id'         => $uid,
-                        'draft_deed_id'   => $draft->id,
+                        'activity_id'     => $activity->id,
                         'status_approval' => 'pending',
+                        'order'           => $ord++,
                         'created_at'      => $now,
                         'updated_at'      => $now,
                     ];
                 }
-                ClientDraft::insert($cdRows);
-            }
+                if (!empty($rows)) ClientActivity::insert($rows);
 
-            return [$activity, $draft->id];
-        });
-
-        // Eager load untuk response
-        $activity->load([
-            'deed',
-            'notaris',
-            'track',
-            'clients' => fn($q) => $q->orderBy('client_activity.order', 'asc'),
-            'clientActivities' => fn($q) => $q->orderBy('order', 'asc'),
-            'requirements',
-            'documentRequirements',
-            'draft.clientDrafts.user',
-            'schedules',
-        ]);
-
-        // ===== Kirim email "added" ke semua klien, setelah commit =====
-        $clientUsers = User::whereIn('id', $orderedClientIds)->get();
-        DB::afterCommit(function () use ($clientUsers, $activity) {
-            foreach ($clientUsers as $client) {
-                try {
-                    $this->notifyClientActivity($client, $activity, 'added');
-                } catch (\Throwable $e) {
-                    // sengaja diamkan (sesuai preferensimu tidak pakai \Log)
+                // 4) optional: create activity-level Requirement from request
+                if (!empty($data['requirements']) && is_array($data['requirements'])) {
+                    $reqRows = [];
+                    foreach ($data['requirements'] as $r) {
+                        if (empty($r['name'])) continue;
+                        $reqRows[] = [
+                            'activity_id' => $activity->id,
+                            'name'        => $r['name'],
+                            'is_file'     => (bool)$r['is_file'],
+                            'created_at'  => $now,
+                            'updated_at'  => $now,
+                        ];
+                    }
+                    if (!empty($reqRows)) Requirement::insert($reqRows);
                 }
-            }
-        });
 
-        return response()->json([
-            'success' => true,
-            'message' => 'Aktivitas, persyaratan (activity), dan draft berhasil dibuat',
-            'data'    => $activity,
-        ], 201);
+                // 5) Generate DocumentRequirement per klien
+                $templates = DeedRequirementTemplate::where('deed_id', $deed->id)
+                    ->where('is_active', true)
+                    ->get();
+
+                $docRows = [];
+
+                if ($templates->count() && !empty($orderedClientIds)) {
+                    // gunakan template deed
+                    foreach ($templates as $tmpl) {
+                        foreach ($orderedClientIds as $uid) {
+                            $docRows[] = [
+                                'activity_notaris_id'           => $activity->id,
+                                'user_id'                       => $uid,
+                                'deed_requirement_template_id'  => $tmpl->id,
+                                'requirement_id'                => null,
+                                'requirement_name'              => $tmpl->name,
+                                'is_file_snapshot'              => (bool)$tmpl->is_file,
+                                'value'                         => $tmpl->default_value ?? null,
+                                'file'                          => null,
+                                'file_path'                     => null,
+                                'status_approval'               => 'pending',
+                                'created_at'                    => $now,
+                                'updated_at'                    => $now,
+                            ];
+                        }
+                    }
+                } else {
+                    // fallback: gunakan Requirement yang sudah dibuat di activity (step 4)
+                    $actReq = Requirement::where('activity_id', $activity->id)->get();
+                    if ($actReq->count() && !empty($orderedClientIds)) {
+                        foreach ($actReq as $req) {
+                            foreach ($orderedClientIds as $uid) {
+                                $docRows[] = [
+                                    'activity_notaris_id' => $activity->id,
+                                    'user_id'             => $uid,
+                                    'deed_requirement_template_id' => null,
+                                    'requirement_id'      => $req->id,
+                                    'requirement_name'    => $req->name,
+                                    'is_file_snapshot'    => (bool)$req->is_file,
+                                    'value'               => null,
+                                    'file'                => null,
+                                    'file_path'           => null,
+                                    'status_approval'     => 'pending',
+                                    'created_at'          => $now,
+                                    'updated_at'          => $now,
+                                ];
+                            }
+                        }
+                    }
+                }
+
+                if (!empty($docRows)) {
+                    DocumentRequirement::insert($docRows);
+                }
+
+                // 6) create draft_deed + client drafts
+                $draft = DraftDeed::create([
+                    'activity_id'           => $activity->id,
+                    'reference_number'      => now()->format('md') . '/OK/' . $activity->tracking_code . '/' . now()->format('Y'),
+                    'custom_value_template' => null,
+                    'reading_schedule'      => null,
+                    'status_approval'       => 'pending',
+                    'file'                  => null,
+                    'file_path'             => null,
+                ]);
+
+                if (!empty($orderedClientIds)) {
+                    $cdRows = [];
+                    foreach ($orderedClientIds as $uid) {
+                        $cdRows[] = [
+                            'user_id'         => $uid,
+                            'draft_deed_id'   => $draft->id,
+                            'status_approval' => 'pending',
+                            'created_at'      => $now,
+                            'updated_at'      => $now,
+                        ];
+                    }
+                    ClientDraft::insert($cdRows);
+                }
+
+                return [$activity, $draft->id];
+            });
+
+            // Eager load relations untuk response
+            $activity->load([
+                'deed',
+                'notaris',
+                'track',
+                'clients' => fn($q) => $q->orderBy('client_activity.order', 'asc'),
+                'clientActivities' => fn($q) => $q->orderBy('order', 'asc'),
+                'requirements',
+                'documentRequirements',
+                'draft.clientDrafts.user',
+                'schedules',
+            ]);
+
+            // After commit: kirim notifikasi/email ke klien
+            $clientUsers = User::whereIn('id', $orderedClientIds)->get();
+            DB::afterCommit(function () use ($clientUsers, $activity) {
+                foreach ($clientUsers as $client) {
+                    try {
+                        $this->notifyClientActivity($client, $activity, 'added');
+                    } catch (\Throwable $e) {
+                        // silent sesuai preferensimu
+                    }
+                }
+            });
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Aktivitas, persyaratan (activity), dan draft berhasil dibuat',
+                'data'    => $activity,
+            ], 201);
+        } catch (\Throwable $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Gagal membuat aktivitas: ' . $e->getMessage(),
+                'data'    => null,
+            ], 500);
+        }
     }
+
 
     public function update(Request $request, $id)
     {
@@ -745,245 +753,250 @@ class NotarisActivityController extends Controller
         $data = $validasi->validated();
         $now  = now();
 
-        // ===== Jalankan transaksi dan kembalikan daftar perubahan untuk email =====
-        [$activity, $toAdd, $actuallyRemoved] = DB::transaction(function () use ($data, $activity, $now) {
+        try {
+            [$activity, $toAdd, $actuallyRemoved] = DB::transaction(function () use ($data, $activity, $now) {
+                // 1) Tentukan orderedClientIds
+                if (isset($data['client_ids'])) {
+                    $validIds = User::whereIn('id', $data['client_ids'])
+                        ->where('role_id', 2)
+                        ->pluck('id')
+                        ->all();
 
-            // 1) Tentukan target klien (urutan sesuai input FE)
-            if (isset($data['client_ids'])) {
-                $validIds = User::whereIn('id', $data['client_ids'])
-                    ->where('role_id', 2)
-                    ->pluck('id')
-                    ->all();
+                    $orderedClientIds = [];
+                    foreach ($data['client_ids'] as $cid) {
+                        if (in_array($cid, $validIds, true)) $orderedClientIds[] = $cid;
+                    }
 
-                $orderedClientIds = [];
-                foreach ($data['client_ids'] as $cid) {
-                    if (in_array($cid, $validIds, true)) $orderedClientIds[] = $cid;
-                }
-
-                if (empty($orderedClientIds)) {
-                    throw new \Illuminate\Validation\ValidationException(
-                        Validator::make([], []),
-                        response()->json([
-                            'success' => false,
-                            'message' => 'Daftar klien tidak valid.',
-                            'data'    => null,
-                        ], 422)
-                    );
-                }
-            } else {
-                $orderedClientIds = $activity->clientActivities()
-                    ->orderBy('order', 'asc')
-                    ->pluck('user_id')
-                    ->all();
-            }
-
-            // 2) Update nama
-            if (isset($data['name'])) {
-                $activity->name = $data['name'];
-                $activity->save();
-            }
-
-            // 3) Update deed_id
-            if (isset($data['deed_id']) && (int)$data['deed_id'] !== (int)$activity->deed_id) {
-                $activity->deed_id = $data['deed_id'];
-                $activity->save();
-            }
-
-            $toAdd = [];
-            $actuallyRemoved = [];
-
-            // 4) Jika klien berubah → reset pivot & regen doc-req + sinkronisasi client_drafts
-            if (isset($data['client_ids'])) {
-                // Ambil existing sebelum dihapus (untuk diff)
-                $existingIdsBefore = ClientActivity::where('activity_id', $activity->id)
-                    ->orderBy('order', 'asc')
-                    ->pluck('user_id')
-                    ->all();
-
-                // Reset pivot client_activity
-                ClientActivity::where('activity_id', $activity->id)->delete();
-
-                $rows = [];
-                $ord  = 1;
-                foreach ($orderedClientIds as $uid) {
-                    $rows[] = [
-                        'user_id'         => $uid,
-                        'activity_id'     => $activity->id,
-                        'status_approval' => 'pending',
-                        'order'           => $ord++,
-                        'created_at'      => $now,
-                        'updated_at'      => $now,
-                    ];
-                }
-                if ($rows) ClientActivity::insert($rows);
-
-                // Regen document requirements untuk kombinasi activity × klien
-                DocumentRequirement::where('activity_notaris_id', $activity->id)->delete();
-
-                // Prefer templates: ambil berdasarkan deed_id saat ini (sudah di-update jika ada perubahan deed)
-                $templates = DeedRequirementTemplate::where('deed_id', $activity->deed_id)
-                    ->where('is_active', true)
-                    ->get();
-
-                $docRows = [];
-
-                if ($templates->count() && !empty($orderedClientIds)) {
-                    foreach ($templates as $tmpl) {
-                        foreach ($orderedClientIds as $uid) {
-                            $docRows[] = [
-                                'activity_notaris_id'           => $activity->id,
-                                'user_id'                       => $uid,
-                                'deed_requirement_template_id'  => $tmpl->id,
-                                'requirement_id'                => $tmpl->requirement_id ?? null,
-                                'requirement_name'              => $tmpl->requirement_name,
-                                'is_file_snapshot'              => (bool)($tmpl->is_file_snapshot ?? false),
-                                'value'                         => $tmpl->default_value ?? null,
-                                'file'                          => null,
-                                'file_path'                     => null,
-                                'status_approval'               => 'pending',
-                                'created_at'                    => $now,
-                                'updated_at'                    => $now,
-                            ];
-                        }
+                    if (empty($orderedClientIds)) {
+                        throw new \Illuminate\Validation\ValidationException(
+                            Validator::make([], []),
+                            response()->json([
+                                'success' => false,
+                                'message' => 'Daftar klien tidak valid.',
+                                'data'    => null,
+                            ], 422)
+                        );
                     }
                 } else {
-                    $actReq = Requirement::where('activity_id', $activity->id)->get();
-                    if ($actReq->count() && !empty($orderedClientIds)) {
-                        foreach ($actReq as $req) {
-                            foreach ($orderedClientIds as $uid) {
-                                $docRows[] = [
-                                    'activity_notaris_id' => $activity->id,
-                                    'user_id'             => $uid,
-                                    'requirement_id'      => $req->id,
-                                    'requirement_name'    => $req->name,
-                                    'is_file_snapshot'    => (bool)$req->is_file,
-                                    'value'               => null,
-                                    'file'                => null,
-                                    'file_path'           => null,
-                                    'status_approval'     => 'pending',
-                                    'created_at'          => $now,
-                                    'updated_at'          => $now,
-                                ];
-                            }
-                        }
-                    }
+                    $orderedClientIds = $activity->clientActivities()
+                        ->orderBy('order', 'asc')
+                        ->pluck('user_id')
+                        ->all();
                 }
 
-                if (!empty($docRows)) DocumentRequirement::insert($docRows);
-
-                // ===== Sinkronisasi CLIENT DRAFTS =====
-                $draft = DraftDeed::firstOrCreate(
-                    ['activity_id' => $activity->id],
-                    [
-                        'custom_value_template' => null,
-                        'reading_schedule'      => null,
-                        'status_approval'       => 'pending',
-                        'file'                  => null,
-                        'file_path'             => null,
-                        'created_at'            => $now,
-                        'updated_at'            => $now,
-                    ]
-                );
-
-                $locked = ClientDraft::where('draft_deed_id', $draft->id)
-                    ->whereIn('status_approval', ['approved', 'rejected'])
-                    ->exists();
-
-                if ($locked) {
-                    throw new \Illuminate\Validation\ValidationException(
-                        Validator::make([], []),
-                        response()->json([
-                            'success' => false,
-                            'message' => 'Tidak dapat mengubah daftar klien karena sudah ada yang menyetujui/menolak draft.',
-                            'data'    => null
-                        ], 422)
-                    );
+                // 2) Update nama jika ada
+                if (isset($data['name'])) {
+                    $activity->name = $data['name'];
+                    $activity->save();
                 }
 
-                // Diff untuk email: toAdd / toRemove
-                $existingIds = ClientDraft::where('draft_deed_id', $draft->id)
-                    ->pluck('user_id')
-                    ->all();
+                // 3) Update deed_id jika berubah
+                if (isset($data['deed_id']) && (int)$data['deed_id'] !== (int)$activity->deed_id) {
+                    $activity->deed_id = $data['deed_id'];
+                    $activity->save();
+                }
 
-                $toAdd    = array_values(array_diff($orderedClientIds, $existingIds));
-                $toRemove = array_values(array_diff($existingIds, $orderedClientIds));
+                $toAdd = [];
+                $actuallyRemoved = [];
 
-                // Tambah ClientDraft baru
-                if (!empty($toAdd)) {
-                    $cdRows = [];
-                    foreach ($toAdd as $uid) {
-                        $cdRows[] = [
+                // 4) Jika client_ids disediakan -> reset pivot, regen DocumentRequirement, sinkron client drafts
+                if (isset($data['client_ids'])) {
+                    // simpan existing sebelum dihapus untuk diff email
+                    $existingIdsBefore = ClientActivity::where('activity_id', $activity->id)
+                        ->orderBy('order', 'asc')
+                        ->pluck('user_id')
+                        ->all();
+
+                    // reset pivot
+                    ClientActivity::where('activity_id', $activity->id)->delete();
+
+                    $rows = [];
+                    $ord  = 1;
+                    foreach ($orderedClientIds as $uid) {
+                        $rows[] = [
                             'user_id'         => $uid,
-                            'draft_deed_id'   => $draft->id,
+                            'activity_id'     => $activity->id,
                             'status_approval' => 'pending',
+                            'order'           => $ord++,
                             'created_at'      => $now,
                             'updated_at'      => $now,
                         ];
                     }
-                    ClientDraft::insert($cdRows);
-                }
+                    if ($rows) ClientActivity::insert($rows);
 
-                // Hapus hanya yang masih pending
-                if (!empty($toRemove)) {
-                    $pendingToRemove = ClientDraft::where('draft_deed_id', $draft->id)
-                        ->whereIn('user_id', $toRemove)
-                        ->where('status_approval', 'pending')
+                    // regen document requirements
+                    DocumentRequirement::where('activity_notaris_id', $activity->id)->delete();
+
+                    $templates = DeedRequirementTemplate::where('deed_id', $activity->deed_id)
+                        ->where('is_active', true)
+                        ->get();
+
+                    $docRows = [];
+                    if ($templates->count() && !empty($orderedClientIds)) {
+                        foreach ($templates as $tmpl) {
+                            foreach ($orderedClientIds as $uid) {
+                                $docRows[] = [
+                                    'activity_notaris_id'           => $activity->id,
+                                    'user_id'                       => $uid,
+                                    'deed_requirement_template_id'  => $tmpl->id,
+                                    'requirement_id'                => null,
+                                    'requirement_name'              => $tmpl->name,
+                                    'is_file_snapshot'              => (bool)$tmpl->is_file,
+                                    'value'                         => $tmpl->default_value ?? null,
+                                    'file'                          => null,
+                                    'file_path'                     => null,
+                                    'status_approval'               => 'pending',
+                                    'created_at'                    => $now,
+                                    'updated_at'                    => $now,
+                                ];
+                            }
+                        }
+                    } else {
+                        $actReq = Requirement::where('activity_id', $activity->id)->get();
+                        if ($actReq->count() && !empty($orderedClientIds)) {
+                            foreach ($actReq as $req) {
+                                foreach ($orderedClientIds as $uid) {
+                                    $docRows[] = [
+                                        'activity_notaris_id' => $activity->id,
+                                        'user_id'             => $uid,
+                                        'deed_requirement_template_id' => null,
+                                        'requirement_id'      => $req->id,
+                                        'requirement_name'    => $req->name,
+                                        'is_file_snapshot'    => (bool)$req->is_file,
+                                        'value'               => null,
+                                        'file'                => null,
+                                        'file_path'           => null,
+                                        'status_approval'     => 'pending',
+                                        'created_at'          => $now,
+                                        'updated_at'          => $now,
+                                    ];
+                                }
+                            }
+                        }
+                    }
+
+                    if (!empty($docRows)) DocumentRequirement::insert($docRows);
+
+                    // ===== sync client drafts =====
+                    $draft = DraftDeed::firstOrCreate(
+                        ['activity_id' => $activity->id],
+                        [
+                            'custom_value_template' => null,
+                            'reading_schedule'      => null,
+                            'status_approval'       => 'pending',
+                            'file'                  => null,
+                            'file_path'             => null,
+                            'created_at'            => $now,
+                            'updated_at'            => $now,
+                        ]
+                    );
+
+                    // tidak boleh merubah jika sudah ada yang approved/rejected
+                    $locked = ClientDraft::where('draft_deed_id', $draft->id)
+                        ->whereIn('status_approval', ['approved', 'rejected'])
+                        ->exists();
+
+                    if ($locked) {
+                        throw new \Illuminate\Validation\ValidationException(
+                            Validator::make([], []),
+                            response()->json([
+                                'success' => false,
+                                'message' => 'Tidak dapat mengubah daftar klien karena sudah ada yang menyetujui/menolak draft.',
+                                'data'    => null
+                            ], 422)
+                        );
+                    }
+
+                    $existingIds = ClientDraft::where('draft_deed_id', $draft->id)
                         ->pluck('user_id')
                         ->all();
 
-                    if (!empty($pendingToRemove)) {
-                        ClientDraft::where('draft_deed_id', $draft->id)
-                            ->whereIn('user_id', $pendingToRemove)
-                            ->delete();
+                    $toAdd = array_values(array_diff($orderedClientIds, $existingIds));
+                    $toRemove = array_values(array_diff($existingIds, $orderedClientIds));
 
-                        // yang benar-benar dihapus → email "removed"
-                        $actuallyRemoved = $pendingToRemove;
+                    if (!empty($toAdd)) {
+                        $cdRows = [];
+                        foreach ($toAdd as $uid) {
+                            $cdRows[] = [
+                                'user_id'         => $uid,
+                                'draft_deed_id'   => $draft->id,
+                                'status_approval' => 'pending',
+                                'created_at'      => $now,
+                                'updated_at'      => $now,
+                            ];
+                        }
+                        ClientDraft::insert($cdRows);
+                    }
+
+                    if (!empty($toRemove)) {
+                        $pendingToRemove = ClientDraft::where('draft_deed_id', $draft->id)
+                            ->whereIn('user_id', $toRemove)
+                            ->where('status_approval', 'pending')
+                            ->pluck('user_id')
+                            ->all();
+
+                        if (!empty($pendingToRemove)) {
+                            ClientDraft::where('draft_deed_id', $draft->id)
+                                ->whereIn('user_id', $pendingToRemove)
+                                ->delete();
+
+                            $actuallyRemoved = $pendingToRemove;
+                        }
+                    }
+                    // ===== end sync client drafts =====
+                }
+
+                // eager load relations untuk response
+                $activity->load([
+                    'deed',
+                    'notaris',
+                    'track',
+                    'clients' => fn($q) => $q->orderBy('client_activity.order', 'asc'),
+                    'clientActivities' => fn($q) => $q->orderBy('order', 'asc'),
+                    'requirements',
+                    'documentRequirements',
+                    'draft.clientDrafts.user',
+                    'schedules',
+                ]);
+
+                return [$activity, $toAdd, $actuallyRemoved];
+            });
+
+            // After commit: kirim email ke toAdd dan actuallyRemoved
+            $addUsers = !empty($toAdd) ? User::whereIn('id', $toAdd)->get() : collect();
+            $removeUsers = !empty($actuallyRemoved) ? User::whereIn('id', $actuallyRemoved)->get() : collect();
+
+            DB::afterCommit(function () use ($addUsers, $removeUsers, $activity) {
+                foreach ($addUsers as $u) {
+                    try {
+                        $this->notifyClientActivity($u, $activity, 'added');
+                    } catch (\Throwable $e) {
+                        //
                     }
                 }
-                // ===== END sinkronisasi client drafts =====
-            }
-
-            // Eager load untuk response
-            $activity->load([
-                'deed',
-                'notaris',
-                'track',
-                'clients' => fn($q) => $q->orderBy('client_activity.order', 'asc'),
-                'clientActivities' => fn($q) => $q->orderBy('order', 'asc'),
-                'requirements',
-                'documentRequirements',
-                'draft.clientDrafts.user',
-                'schedules',
-            ]);
-
-            return [$activity, $toAdd, $actuallyRemoved];
-        });
-
-        // ===== Kirim email setelah commit =====
-        $addUsers = !empty($toAdd) ? User::whereIn('id', $toAdd)->get() : collect();
-        $removeUsers = !empty($actuallyRemoved) ? User::whereIn('id', $actuallyRemoved)->get() : collect();
-
-        DB::afterCommit(function () use ($addUsers, $removeUsers, $activity) {
-            foreach ($addUsers as $u) {
-                try {
-                    $this->notifyClientActivity($u, $activity, 'added');
-                } catch (\Throwable $e) {
+                foreach ($removeUsers as $u) {
+                    try {
+                        $this->notifyClientActivity($u, $activity, 'removed');
+                    } catch (\Throwable $e) {
+                        //
+                    }
                 }
-            }
-            foreach ($removeUsers as $u) {
-                try {
-                    $this->notifyClientActivity($u, $activity, 'removed');
-                } catch (\Throwable $e) {
-                }
-            }
-        });
+            });
 
-        return response()->json([
-            'success' => true,
-            'message' => 'Aktivitas berhasil diperbarui',
-            'data'    => $activity
-        ], 200);
+            return response()->json([
+                'success' => true,
+                'message' => 'Aktivitas berhasil diperbarui',
+                'data'    => $activity
+            ], 200);
+        } catch (\Throwable $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Gagal memperbarui aktivitas: ' . $e->getMessage(),
+                'data'    => null
+            ], 500);
+        }
     }
+
 
 
     public function destroy(Request $request, $id)
@@ -991,7 +1004,7 @@ class NotarisActivityController extends Controller
         $user = $request->user();
         $isAdmin = (int)$user->role_id === 1 || $user->tokenCan('admin'); // fleksibel
 
-        // Admin: boleh akses activity mana pun; Notaris: hanya miliknya
+        // Admin boleh akses semua; notaris hanya miliknya
         $activityQuery = Activity::where('id', $id);
         if (!$isAdmin) {
             $activityQuery->where('user_notaris_id', $user->id);
@@ -1006,7 +1019,7 @@ class NotarisActivityController extends Controller
             ], 404);
         }
 
-        // Blokir hapus jika sudah approved (AMAN)
+        // Cegah hapus jika ada yang sudah approved
         $hasApproved = $activity->clientActivities()
             ->where('status_approval', 'approved')
             ->exists();
@@ -1023,22 +1036,32 @@ class NotarisActivityController extends Controller
         try {
             $trackId = $activity->track_id;
 
-            // Hapus anak-anak
+            // Hapus DocumentRequirement (activity scope)
             $activity->documentRequirements()->delete();
+
+            // Hapus activity-level requirements (if any)
             $activity->requirements()->delete();
-            $activity->draft()->delete();       // pastikan FK cascade untuk client_drafts, kalau tidak: hapus manual
+
+            // Hapus draft & client drafts (draft() bisa null)
+            if ($activity->draft) {
+                // jika ada clientDrafts, hapus dulu, lalu hapus draft
+                $activity->draft->clientDrafts()->delete();
+                $activity->draft()->delete();
+            }
+
+            // Hapus schedules, pivot client_activity, lalu activity
             $activity->schedules()->delete();
             $activity->clientActivities()->delete();
 
-            // Hapus activity
             $activity->delete();
 
-            // Hapus track (opsional)
+            // Hapus track jika tidak diperlukan lagi
             if ($trackId) {
                 Track::where('id', $trackId)->delete();
             }
 
             DB::commit();
+
             return response()->json([
                 'success' => true,
                 'message' => 'Aktivitas berhasil dihapus',
@@ -1053,6 +1076,7 @@ class NotarisActivityController extends Controller
             ], 500);
         }
     }
+
 
     public function approve($id)
     {
