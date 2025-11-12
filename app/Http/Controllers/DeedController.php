@@ -187,7 +187,7 @@ class DeedController extends Controller
         }
 
         $validasi = Validator::make($request->all(), [
-            'name'        => 'required|string|max:255|unique:deeds,name,' . $deed->id,
+            'name'        => 'required|string|max:255',
             'description' => 'required|string|max:255',
             'requirements' => 'sometimes|array',
             'requirements.*.name' => 'required_with:requirements|string|max:255',
@@ -195,7 +195,6 @@ class DeedController extends Controller
             'requirements.*.is_active' => 'sometimes|boolean',
         ], [
             'name.required'        => 'Nama akta wajib diisi.',
-            'name.unique'          => 'Nama akta sudah digunakan.',
             'name.max'             => 'Nama akta maksimal 255 karakter.',
             'description.required' => 'Deskripsi wajib diisi.',
             'description.max'      => 'Deskripsi maksimal 255 karakter.',

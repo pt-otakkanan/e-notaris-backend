@@ -13,6 +13,7 @@ class DocumentRequirement extends Model
 
     protected $fillable = [
         'activity_notaris_id',
+        'deed_requirement_template_id',
         'requirement_id',
         'requirement_name',
         'is_file_snapshot',
@@ -43,20 +44,20 @@ class DocumentRequirement extends Model
     }
 
     // Scopes
-    public function scopePending($query)
-    {
-        return $query->where('status_approval', 'pending');
-    }
+    // public function scopePending($query)
+    // {
+    //     return $query->where('status_approval', 'pending');
+    // }
 
-    public function scopeApproved($query)
-    {
-        return $query->where('status_approval', 'approved');
-    }
+    // public function scopeApproved($query)
+    // {
+    //     return $query->where('status_approval', 'approved');
+    // }
 
-    public function scopeRejected($query)
-    {
-        return $query->where('status_approval', 'rejected');
-    }
+    // public function scopeRejected($query)
+    // {
+    //     return $query->where('status_approval', 'rejected');
+    // }
 
     public function deedRequirementTemplate()
     {
