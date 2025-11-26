@@ -22,6 +22,7 @@ class Activity extends Model
         'user_notaris_id',
         'activity_notaris_id',
         'tracking_code',
+        'is_without_client',
     ];
 
     // tampilkan status_approval (virtual) di JSON
@@ -98,11 +99,15 @@ class Activity extends Model
         if ($anyRejected) {
             return 'rejected';
         }
-
-        // Total klien yang dibutuhkan (deed->total_client)
         $needed = (int) optional($this->deed)->total_client ?: 1;
 
-        // Semua approved?
+        // jika tidak ada clientActivities sama sekali
+        $totalClientsAttached = $this->clientActivities()->count();
+        if ($totalClientsAttached === 0) {
+            // anggap approved only if deed secara eksplisit butuh 0 klien
+            return $needed === 0 ? 'approved' : 'pending';
+        }
+
         $approvedCount = $this->clientActivities()
             ->where('status_approval', 'approved')
             ->count();

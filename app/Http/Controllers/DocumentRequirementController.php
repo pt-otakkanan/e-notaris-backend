@@ -264,15 +264,20 @@ class DocumentRequirementController extends Controller
         // Tentukan user_id target:
         // - Jika klien: paksa ke user login
         // - Jika notaris: boleh pakai user_id dari request (wajib anggota clients)
+        //   kecuali ketika activity dibuat tanpa penghadap (is_without_client)
+        //   maka owner (notaris) sendiri dianggap valid target.
         $targetUserId = $user->id;
         if ($isOwner && $request->filled('user_id')) {
             $targetUserId = (int) $request->input('user_id');
             if (!$activity->clients->contains('id', $targetUserId)) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Pengguna yang dipilih bukan klien pada aktivitas ini.',
-                    'data'    => null,
-                ], 422);
+                // allow owner as target when activity is marked without clients
+                if (!($activity->is_without_client && $targetUserId === (int) $activity->user_notaris_id)) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Pengguna yang dipilih bukan klien pada aktivitas ini.',
+                        'data'    => null,
+                    ], 422);
+                }
             }
         }
 
@@ -394,16 +399,20 @@ class DocumentRequirementController extends Controller
         $data = $validator->validated();
 
         // Notaris boleh ganti user_id hanya ke klien activity; klien tidak boleh
+        // Namun jika activity.is_without_client dan target user adalah owner sendiri,
+        // izinkan.
         if (array_key_exists('user_id', $data) && !$isOwner) {
             unset($data['user_id']);
         }
         if ($isOwner && array_key_exists('user_id', $data)) {
             if (!$activity->clients->contains('id', (int) $data['user_id'])) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Pengguna yang dipilih bukan klien pada aktivitas ini.',
-                    'data'    => null,
-                ], 422);
+                if (!($activity->is_without_client && (int) $data['user_id'] === (int) $activity->user_notaris_id)) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Pengguna yang dipilih bukan klien pada aktivitas ini.',
+                        'data'    => null,
+                    ], 422);
+                }
             }
         }
 
@@ -446,10 +455,34 @@ class DocumentRequirementController extends Controller
             }
         }
 
-        // Reset status setiap ada perubahan
-        $doc->status_approval = 'pending';
+        // Tentukan status persetujuan akhir:
+        // - Default: 'pending' ketika ada perubahan
+        // - Jika ada file baru yang diunggah oleh notaris pemilik pada activity tanpa penghadap,
+        //   maka auto-approve (notaris mengisi sendiri dokumen untuk aktivitas tanpa klien).
+        $finalStatus = 'pending';
+        if ($request->hasFile('file') && $isOwner && !empty($activity) && $activity->is_without_client) {
+            // Pastikan dokumen ditujukan kepada notaris sendiri (owner)
+            $targetUserId = $data['user_id'] ?? $doc->user_id;
+            if ((int)$targetUserId === (int)$activity->user_notaris_id) {
+                $finalStatus = 'approved';
+            }
+        }
+
+        $doc->status_approval = $finalStatus;
 
         $doc->save();
+
+        // Jika semua dokumen persyaratan untuk activity sudah approved, tandai track.status_docs = 'done'
+        if ($finalStatus === 'approved') {
+            $hasPending = DocumentRequirement::where('activity_notaris_id', $activity->id)
+                ->where('status_approval', '!=', 'approved')
+                ->exists();
+
+            if (!$hasPending && !empty($activity->track)) {
+                $activity->track->status_docs = 'done';
+                $activity->track->save();
+            }
+        }
 
         return response()->json([
             'success' => true,
@@ -578,9 +611,12 @@ class DocumentRequirementController extends Controller
             ], 404);
         }
 
-        // Pastikan target user adalah klien di activity
-        $isClient = $activity->clients->contains('id', (int) $idUser);
-        if (!$isClient) {
+        // Pastikan target user adalah klien di activity, atau owner (notaris) dirinya sendiri.
+        $targetId = (int) $idUser;
+        $isClient = $activity->clients->contains('id', $targetId);
+        $isOwnerRequest = $targetId === (int) $user->id;
+
+        if (!$isClient && !$isOwnerRequest) {
             return response()->json([
                 'success' => false,
                 'message' => 'Pengguna yang dipilih bukan klien pada aktivitas ini.',
@@ -590,7 +626,7 @@ class DocumentRequirementController extends Controller
 
         $docs = DocumentRequirement::with(['requirement', 'deedRequirementTemplate'])
             ->where('activity_notaris_id', $activity->id)
-            ->where('user_id', (int) $idUser)
+            ->where('user_id', $targetId)
             ->orderBy('id', 'asc')
             ->get();
 
