@@ -298,6 +298,8 @@ Route::prefix('notaris')->middleware(['auth:sanctum'])->group(function () {
         Route::middleware('checkverif')->group(function () {
             Route::post('/',               [NotarisActivityController::class, 'store']);
             Route::post('/update/{id}',    [NotarisActivityController::class, 'update']);
+            // notary approval for draft (owner)
+            Route::post('/draft/approval/{id}', [NotarisActivityController::class, 'approveDraftByNotary']);
         });
     });
     Route::prefix('activity')->middleware('ability:admin,notaris')->group(function () {
@@ -381,15 +383,14 @@ Route::prefix('user')->middleware(['auth:sanctum'])->group(function () {
     // Client approval activity (khusus penghadap)
     Route::middleware('ability:penghadap')->group(function () {
         Route::post('/activity/approval/{id}', [ClientActivityController::class, 'clientApproval'])->middleware('checkverif');
-
-        Route::prefix('activity')->group(function () {
-            Route::get('/',     [ClientActivityController::class, 'index']);
-            Route::get('/{id}', [ClientActivityController::class, 'show']);
-        });
+    });
+    Route::prefix('activity')->group(function () {
+        Route::get('/',     [ClientActivityController::class, 'index']);
+        Route::get('/{id}', [ClientActivityController::class, 'show']);
     });
 
     // Client approval draft (khusus penghadap)
-    Route::middleware('ability:penghadap')->group(function () {
+    Route::middleware('ability:penghadap,notaris,admin')->group(function () {
         Route::post('/drafts/approval/{id}', [ClientDraftController::class, 'clientApproval'])->middleware('checkverif');
 
         Route::prefix('drafts')->group(function () {
@@ -399,7 +400,7 @@ Route::prefix('user')->middleware(['auth:sanctum'])->group(function () {
     });
 
     // Update document requirement (user/notaris)
-    Route::prefix('document-requirement')->middleware('ability:penghadap,notaris')->group(function () {
+    Route::prefix('document-requirement')->middleware('ability:penghadap,notaris,admin')->group(function () {
         Route::post('/update/{id}', [DocumentRequirementController::class, 'update'])->middleware('checkverif');
     });
 });
