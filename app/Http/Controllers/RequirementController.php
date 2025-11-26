@@ -21,7 +21,15 @@ class RequirementController extends Controller
         if (!$act) return 0;
 
         $clientIds = $act->clients->pluck('id')->all();
-        if (empty($clientIds)) return 0;
+        // Jika tidak ada klien, tapi aktivitas bertanda is_without_client,
+        // buat DocumentRequirement untuk notaris (owner) supaya notaris bisa mengisi dokumen.
+        if (empty($clientIds)) {
+            if ($act->is_without_client) {
+                $clientIds = [$act->user_notaris_id];
+            } else {
+                return 0;
+            }
+        }
 
         $now  = now();
         $rows = [];

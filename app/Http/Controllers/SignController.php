@@ -301,12 +301,12 @@ class SignController extends Controller
             }
 
             // Cek apakah file_ttd sudah ada
-            if (!$activity->draft || empty($activity->draft->file_ttd)) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Tidak bisa menandai selesai. File TTD belum tersedia.'
-                ], 422);
-            }
+            // if (!$activity->draft || empty($activity->draft->file_ttd)) {
+            //     return response()->json([
+            //         'success' => false,
+            //         'message' => 'Tidak bisa menandai selesai. File TTD belum tersedia.'
+            //     ], 422);
+            // }
 
             // Ambil/siapkan track record
             $track = $activity->track;
