@@ -190,28 +190,6 @@ class NotarisActivityController extends Controller
             if (!empty($docRows)) {
                 DocumentRequirement::insert($docRows);
             }
-
-
-            // 3) Generate DocumentRequirement utk user baru
-            if ($actReq->count()) {
-                $docRows = [];
-                foreach ($actReq as $req) {
-                    $docRows[] = [
-                        'activity_notaris_id' => $activity->id,
-                        'user_id'             => $userid,
-                        'requirement_id'      => $req->id,
-                        'requirement_name'    => $req->name,
-                        'is_file_snapshot'    => (bool)$req->is_file,
-                        'value'               => null,
-                        'file'                => null,
-                        'file_path'           => null,
-                        'status_approval'     => 'pending',
-                        'created_at'          => $now,
-                        'updated_at'          => $now,
-                    ];
-                }
-                DocumentRequirement::insert($docRows);
-            }
         });
 
         // Email — kirim setelah commit
@@ -330,23 +308,23 @@ class NotarisActivityController extends Controller
             $query->where(function ($q) use ($approvalStatus) {
                 if ($approvalStatus === 'approved') {
                     // ada approved, tidak ada pending & tidak ada rejected
-                    $q->whereExists(fn($ex) => $ex->from('client_activities')
-                        ->whereColumn('client_activities.activity_id', 'activities.id')
-                        ->where('client_activities.status_approval', 'approved'))
-                        ->whereNotExists(fn($ex) => $ex->from('client_activities')
-                            ->whereColumn('client_activities.activity_id', 'activities.id')
-                            ->whereIn('client_activities.status_approval', ['pending', 'rejected']));
+                    $q->whereExists(fn($ex) => $ex->from('client_activity')
+                        ->whereColumn('client_activity.activity_id', 'activity.id')
+                        ->where('client_activity.status_approval', 'approved'))
+                        ->whereNotExists(fn($ex) => $ex->from('client_activity')
+                            ->whereColumn('client_activity.activity_id', 'activity.id')
+                            ->whereIn('client_activity.status_approval', ['pending', 'rejected']));
                 } elseif ($approvalStatus === 'rejected') {
-                    $q->whereExists(fn($ex) => $ex->from('client_activities')
-                        ->whereColumn('client_activities.activity_id', 'activities.id')
-                        ->where('client_activities.status_approval', 'rejected'));
+                    $q->whereExists(fn($ex) => $ex->from('client_activity')
+                        ->whereColumn('client_activity.activity_id', 'activity.id')
+                        ->where('client_activity.status_approval', 'rejected'));
                 } else { // pending
-                    $q->whereExists(fn($ex) => $ex->from('client_activities')
-                        ->whereColumn('client_activities.activity_id', 'activities.id')
-                        ->where('client_activities.status_approval', 'pending'))
-                        ->whereNotExists(fn($ex) => $ex->from('client_activities')
-                            ->whereColumn('client_activities.activity_id', 'activities.id')
-                            ->where('client_activities.status_approval', 'rejected'));
+                    $q->whereExists(fn($ex) => $ex->from('client_activity')
+                        ->whereColumn('client_activity.activity_id', 'activity.id')
+                        ->where('client_activity.status_approval', 'pending'))
+                        ->whereNotExists(fn($ex) => $ex->from('client_activity')
+                            ->whereColumn('client_activity.activity_id', 'activity.id')
+                            ->where('client_activity.status_approval', 'rejected'));
                 }
             });
         }
