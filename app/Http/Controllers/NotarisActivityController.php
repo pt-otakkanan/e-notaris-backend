@@ -14,7 +14,6 @@ use App\Models\ClientActivity;
 use App\Mail\ClientActivityMail;
 use Illuminate\Support\Facades\DB;
 use App\Models\DocumentRequirement;
-use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 use App\Models\DeedRequirementTemplate;
 use Illuminate\Support\Facades\Validator;
@@ -269,92 +268,70 @@ class NotarisActivityController extends Controller
         $search          = trim((string) $request->query('search', ''));
         $approvalStatus  = $request->query('status');
         $perPage         = (int) $request->query('per_page', 10) ?: 10;
-        $perPage         = min(max($perPage, 1), 100);
+        $perPage         = min(max($perPage, 1), 100); // 1..100
         $filterNotarisId = $request->query('notaris_id');
 
-        // ✅ OPTIMASI 1: Gunakan RAW SQL untuk aggregate count (1 query instead of 4)
         $query = Activity::query()
-            ->select([
-                'activity.id',
-                'activity.user_notaris_id',
-                'activity.deed_id',
-                'activity.tracking_code',
-                'activity.name',
-                'activity.is_without_client',
-                'activity.created_at',
-                'activity.updated_at',
-                // ✅ COUNT semua status dalam 1 subquery dengan CASE
-                DB::raw('(SELECT COUNT(*) FROM client_activity WHERE client_activity.activity_id = activity.id) as clients_count'),
-                DB::raw('(SELECT COUNT(*) FROM client_activity WHERE client_activity.activity_id = activity.id AND client_activity.status_approval = "approved") as approved_count'),
-                DB::raw('(SELECT COUNT(*) FROM client_activity WHERE client_activity.activity_id = activity.id AND client_activity.status_approval = "rejected") as rejected_count'),
-                DB::raw('(SELECT COUNT(*) FROM client_activity WHERE client_activity.activity_id = activity.id AND client_activity.status_approval = "pending") as pending_count'),
-            ])
+            ->select(['id', 'user_notaris_id', 'deed_id', 'tracking_code', 'name', 'created_at', 'updated_at'])
             ->with([
                 'deed:id,name',
-                'notaris:id,name,email',
+                'notaris:id,name',
+            ])
+            ->withCount([
+                'clients',
+                'clientActivities as approved_count' => fn($q) => $q->where('status_approval', 'approved'),
+                'clientActivities as rejected_count' => fn($q) => $q->where('status_approval', 'rejected'),
+                'clientActivities as pending_count'  => fn($q) => $q->where('status_approval', 'pending'),
             ]);
 
         // Role filter
         if ((int) $user->role_id !== 1) {
-            $query->where('activity.user_notaris_id', $user->id);
+            $query->where('user_notaris_id', $user->id);
         } else {
-            $query->where('activity.user_notaris_id', '!=', $user->id);
+            $query->where('user_notaris_id', '!=', $user->id);
             if (!empty($filterNotarisId)) {
-                $query->where('activity.user_notaris_id', (int) $filterNotarisId);
+                $query->where('user_notaris_id', (int) $filterNotarisId);
             }
         }
 
         // Search
         if ($search !== '') {
             $query->where(function ($sub) use ($search) {
-                $sub->where('activity.tracking_code', 'like', "%{$search}%")
-                    ->orWhere('activity.name', 'like', "%{$search}%")
+                $sub->where('tracking_code', 'like', "%{$search}%")
+                    ->orWhere('name', 'like', "%{$search}%")
                     ->orWhereHas('deed', fn($q) => $q->where('name', 'like', "%{$search}%"));
             });
         }
 
-        // ✅ OPTIMASI 2: Filter status dengan JOIN lebih efisien
+        // Filter status via EXISTS (lebih index-friendly)
         if (in_array($approvalStatus, ['pending', 'approved', 'rejected'], true)) {
-            if ($approvalStatus === 'approved') {
-                // Semua approved, tidak ada pending/rejected
-                $query->whereRaw('
-                EXISTS (
-                    SELECT 1 FROM client_activity ca1
-                    WHERE ca1.activity_id = activity.id
-                    AND ca1.status_approval = "approved"
-                )
-                AND NOT EXISTS (
-                    SELECT 1 FROM client_activity ca2
-                    WHERE ca2.activity_id = activity.id
-                    AND ca2.status_approval IN ("pending", "rejected")
-                )
-            ');
-            } elseif ($approvalStatus === 'rejected') {
-                $query->whereRaw('
-                EXISTS (
-                    SELECT 1 FROM client_activity
-                    WHERE client_activity.activity_id = activity.id
-                    AND client_activity.status_approval = "rejected"
-                )
-            ');
-            } else { // pending
-                $query->whereRaw('
-                EXISTS (
-                    SELECT 1 FROM client_activity ca1
-                    WHERE ca1.activity_id = activity.id
-                    AND ca1.status_approval = "pending"
-                )
-                AND NOT EXISTS (
-                    SELECT 1 FROM client_activity ca2
-                    WHERE ca2.activity_id = activity.id
-                    AND ca2.status_approval = "rejected"
-                )
-            ');
-            }
+            $query->where(function ($q) use ($approvalStatus) {
+                if ($approvalStatus === 'approved') {
+                    // ada approved, tidak ada pending & tidak ada rejected
+                    $q->whereExists(fn($ex) => $ex->from('client_activity')
+                        ->whereColumn('client_activity.activity_id', 'activity.id')
+                        ->where('client_activity.status_approval', 'approved'))
+                        ->whereNotExists(fn($ex) => $ex->from('client_activity')
+                            ->whereColumn('client_activity.activity_id', 'activity.id')
+                            ->whereIn('client_activity.status_approval', ['pending', 'rejected']));
+                } elseif ($approvalStatus === 'rejected') {
+                    $q->whereExists(fn($ex) => $ex->from('client_activity')
+                        ->whereColumn('client_activity.activity_id', 'activity.id')
+                        ->where('client_activity.status_approval', 'rejected'));
+                } else { // pending
+                    $q->whereExists(fn($ex) => $ex->from('client_activity')
+                        ->whereColumn('client_activity.activity_id', 'activity.id')
+                        ->where('client_activity.status_approval', 'pending'))
+                        ->whereNotExists(fn($ex) => $ex->from('client_activity')
+                            ->whereColumn('client_activity.activity_id', 'activity.id')
+                            ->where('client_activity.status_approval', 'rejected'));
+                }
+            });
         }
 
-        $query->orderByDesc('activity.created_at');
+        $query->orderByDesc('created_at');
 
+        // Pilih paginate atau simplePaginate
         $data = $query->paginate($perPage);
 
         return response()->json($data);
