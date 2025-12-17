@@ -58,8 +58,9 @@ Route::prefix('landing')->group(function () {
     Route::get('/statistics',                 [LandingController::class, 'statistics']);
     Route::get('/templates',                 [LandingController::class, 'templates']);
     Route::get('/blogs',            [LandingController::class, 'blogs']);
+    Route::get('/blogs/{id}',             [BlogController::class, 'show']);
     Route::get('/blog-categories',  [LandingController::class, 'blogCategories']);
-    Route::get('/blogs/latest', [LandingController::class, 'latestBlogs']);
+    Route::get('/latest-blog', [LandingController::class, 'latestBlogs']);
     Route::get('/settings', [LandingController::class, 'settings']);
 });
 
@@ -127,14 +128,14 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/schedule/user/{id}', [ScheduleController::class, 'show']);
     });
 
-    // Track lookup via tracking code → boleh untuk semua user login
-    Route::prefix('track')->group(function () {
-        Route::get('/lookup/{code}', [TrackController::class, 'lookupByCode']);
-        Route::post('/lookup',       [TrackController::class, 'lookupByCodePost']);
-    });
     Route::prefix('dashboard')->group(function () {
         Route::get('/', [DashboardController::class, 'getData']);
     });
+});
+// Track lookup via tracking code → boleh untuk semua user login
+Route::prefix('track')->group(function () {
+    Route::get('/lookup/{code}', [TrackController::class, 'lookupByCode']);
+    Route::post('/lookup',       [TrackController::class, 'lookupByCodePost']);
 });
 
 // routes/api.php (contoh)
