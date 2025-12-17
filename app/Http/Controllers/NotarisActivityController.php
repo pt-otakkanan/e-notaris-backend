@@ -14,6 +14,7 @@ use App\Models\ClientActivity;
 use App\Mail\ClientActivityMail;
 use Illuminate\Support\Facades\DB;
 use App\Models\DocumentRequirement;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 use App\Models\DeedRequirementTemplate;
 use Illuminate\Support\Facades\Validator;
@@ -517,11 +518,10 @@ class NotarisActivityController extends Controller
         $isWithoutClient = $data['is_without_client'] ?? false;
         $clientIds = $data['client_ids'] ?? [];
 
-        // Jika tanpa penghadap, client_ids harus kosong atau tidak ada
+        // Validasi client_ids
         if ($isWithoutClient) {
             $orderedClientIds = [];
         } elseif (!empty($clientIds)) {
-            // Jika ada client_ids, validasi role penghadap dan pertahankan urutan
             $validIds = User::whereIn('id', $clientIds)
                 ->where('role_id', 2)
                 ->pluck('id')
@@ -542,14 +542,13 @@ class NotarisActivityController extends Controller
                 }
             }
         } else {
-            // Jika tidak ada clients dan bukan tanpa penghadap, set kosong (biarkan keputusan di frontend)
             $orderedClientIds = [];
         }
 
         $deed = Deed::find($data['deed_id']);
 
         try {
-            [$activity, $draftId] = DB::transaction(function () use ($user, $deed, $data, $orderedClientIds, $isWithoutClient) {
+            [$activityId, $draftId] = DB::transaction(function () use ($user, $deed, $data, $orderedClientIds, $isWithoutClient) {
                 $now = now();
 
                 // 1) create activity
@@ -575,7 +574,7 @@ class NotarisActivityController extends Controller
 
                 $activity->update(['track_id' => $track->id]);
 
-                // 3) pivot client_activity insert (skip jika tanpa penghadap)
+                // 3) pivot client_activity insert
                 if (!$isWithoutClient && !empty($orderedClientIds)) {
                     $rows = [];
                     $ord = 1;
@@ -592,7 +591,7 @@ class NotarisActivityController extends Controller
                     ClientActivity::insert($rows);
                 }
 
-                // 4) optional: create activity-level Requirement from request
+                // 4) create activity-level Requirement
                 if (!empty($data['requirements']) && is_array($data['requirements'])) {
                     $reqRows = [];
                     foreach ($data['requirements'] as $r) {
@@ -612,7 +611,6 @@ class NotarisActivityController extends Controller
 
                 // 5) Generate DocumentRequirement
                 if ($isWithoutClient) {
-                    // Notaris sendiri yang isi dokumen
                     $templates = DeedRequirementTemplate::where('deed_id', $deed->id)
                         ->where('is_active', true)
                         ->get();
@@ -621,7 +619,7 @@ class NotarisActivityController extends Controller
                     foreach ($templates as $tmpl) {
                         $docRows[] = [
                             'activity_notaris_id' => $activity->id,
-                            'user_id' => $user->id, // notaris
+                            'user_id' => $user->id,
                             'deed_requirement_template_id' => $tmpl->id,
                             'requirement_id' => null,
                             'requirement_name' => $tmpl->name,
@@ -636,7 +634,6 @@ class NotarisActivityController extends Controller
                     }
 
                     if (empty($docRows)) {
-                        // fallback ke activity requirements
                         $actReq = Requirement::where('activity_id', $activity->id)->get();
                         foreach ($actReq as $req) {
                             $docRows[] = [
@@ -660,7 +657,6 @@ class NotarisActivityController extends Controller
                         DocumentRequirement::insert($docRows);
                     }
                 } else {
-                    // Logic existing untuk multiple clients
                     $templates = DeedRequirementTemplate::where('deed_id', $deed->id)
                         ->where('is_active', true)
                         ->get();
@@ -726,7 +722,6 @@ class NotarisActivityController extends Controller
                 ]);
 
                 if ($isWithoutClient) {
-                    // Notaris sendiri yang approve draft
                     ClientDraft::create([
                         'user_id' => $user->id,
                         'draft_deed_id' => $draft->id,
@@ -750,42 +745,52 @@ class NotarisActivityController extends Controller
                     }
                 }
 
-                return [$activity, $draft->id];
+                // ✅ RETURN HANYA ID, bukan object
+                return [$activity->id, $draft->id];
             });
 
-            // Eager load relations untuk response
-            $activity->load([
-                'deed',
-                'notaris',
-                'track',
-                'clients' => fn($q) => $q->orderBy('client_activity.order', 'asc'),
-                'clientActivities' => fn($q) => $q->orderBy('order', 'asc'),
-                'requirements',
-                'documentRequirements',
-                'draft.clientDrafts.user',
-                'schedules',
-            ]);
+            // ✅ OPTIMASI 1: Load HANYA data yang diperlukan untuk response
+            // Jangan load relasi yang tidak dipakai di frontend
+            $activity = Activity::with([
+                'deed:id,name',
+                'notaris:id,name,email',
+                'track:id,status_invite,status_respond,status_docs,status_draft,status_schedule,status_sign,status_print',
+                'clients:id,name,email',
+            ])->findOrFail($activityId);
 
-            // Kirim notifikasi hanya jika ada penghadap
+            // ✅ OPTIMASI 2: Kirim notifikasi ASYNCHRONOUS (queue/job)
+            // Jangan blocking response dengan notifikasi
             if (!$isWithoutClient && !empty($orderedClientIds)) {
-                $clientUsers = User::whereIn('id', $orderedClientIds)->get();
-                DB::afterCommit(function () use ($clientUsers, $activity) {
-                    foreach ($clientUsers as $client) {
+                // Dispatch job/event untuk notifikasi
+                // dispatch(new SendActivityNotificationJob($activityId, $orderedClientIds));
+
+                // Atau jika tidak punya queue, minimal gunakan afterCommit agar tidak blocking
+                DB::afterCommit(function () use ($orderedClientIds, $activityId) {
+                    dispatch(function () use ($orderedClientIds, $activityId) {
                         try {
-                            $this->notifyClientActivity($client, $activity, 'added');
+                            $activity = Activity::find($activityId);
+                            $clientUsers = User::whereIn('id', $orderedClientIds)->get();
+                            foreach ($clientUsers as $client) {
+                                $this->notifyClientActivity($client, $activity, 'added');
+                            }
                         } catch (\Throwable $e) {
-                            // silent
+                            Log::error('Failed to send notifications: ' . $e->getMessage());
                         }
-                    }
+                    })->afterResponse();
                 });
             }
 
+            // ✅ RESPONSE FORMAT yang konsisten
             return response()->json([
                 'success' => true,
                 'message' => 'Aktivitas berhasil dibuat',
                 'data' => $activity,
             ], 201);
         } catch (\Throwable $e) {
+            Log::error('Activity creation failed: ' . $e->getMessage(), [
+                'trace' => $e->getTraceAsString()
+            ]);
+
             return response()->json([
                 'success' => false,
                 'message' => 'Gagal membuat aktivitas: ' . $e->getMessage(),
