@@ -14,6 +14,7 @@ use App\Models\ClientActivity;
 use App\Mail\ClientActivityMail;
 use Illuminate\Support\Facades\DB;
 use App\Models\DocumentRequirement;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 use App\Models\DeedRequirementTemplate;
 use Illuminate\Support\Facades\Validator;
@@ -773,7 +774,7 @@ class NotarisActivityController extends Controller
                                 $this->notifyClientActivity($client, $activity, 'added');
                             }
                         } catch (\Throwable $e) {
-                            \Log::error('Failed to send notifications: ' . $e->getMessage());
+                            Log::error('Failed to send notifications: ' . $e->getMessage());
                         }
                     })->afterResponse();
                 });
@@ -786,7 +787,7 @@ class NotarisActivityController extends Controller
                 'data' => $activity,
             ], 201);
         } catch (\Throwable $e) {
-            \Log::error('Activity creation failed: ' . $e->getMessage(), [
+            Log::error('Activity creation failed: ' . $e->getMessage(), [
                 'trace' => $e->getTraceAsString()
             ]);
 
