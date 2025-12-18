@@ -7,6 +7,7 @@ use App\Models\User;
 use App\Mail\AuthMail;
 use Illuminate\Support\Str;
 use Illuminate\Http\Request;
+use App\Jobs\SendAuthEmailJob;
 use App\Mail\ResetPasswordMail;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Auth;
@@ -39,150 +40,6 @@ class AuthController extends Controller
         return response()->json(['success' => true, 'message' => 'Token Masih Aktif'], 200);
     }
 
-    public function registerUser(Request $request)
-    {
-        $validasi = Validator::make($request->all(), [
-            'name'             => 'required',
-            'email'            => 'required|email|unique:users,email',
-            'password'         => 'required|min:6',
-            'confirmPassword'  => 'required|same:password',
-            'role_id'          => 'required|in:2,3',
-        ], [
-            'name.required'            => 'Nama wajib diisi.',
-            'email.required'           => 'Email wajib diisi.',
-            'email.email'              => 'Format email tidak valid.',
-            'email.unique'             => 'Email sudah terdaftar.',
-            'password.required'        => 'Password wajib diisi.',
-            'password.min'             => 'Password minimal 6 karakter.',
-            'confirmPassword.required' => 'Konfirmasi password wajib diisi.',
-            'confirmPassword.same'     => 'Konfirmasi password harus sama dengan password.',
-            'role_id.required'         => 'Role wajib dipilih.',
-            'role_id.in'               => 'Role hanya boleh 2 (penghadap) atau 3 (notaris).',
-        ]);
-
-        if ($validasi->fails()) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Proses validasi gagal',
-                'data'    => $validasi->errors()
-            ], 422);
-        }
-
-        // generate kode & expiry SEKALI, pakai di DB & email
-        $code    = Str::upper(Str::random(7));
-        $expires = now()->addHour();
-
-        $user = User::create([
-            'role_id'     => $request->role_id,
-            'name'        => $request->name,
-            'email'       => $request->email,
-            'password'    => Hash::make($request->password),
-            'verify_key'  => $code,
-            'expired_key' => $expires,
-        ]);
-
-        // kirim email verifikasi (tanpa mengubah verify_key/expired_key di DB lagi)
-        $this->sendVerificationMail($user, $code, $expires);
-
-        return response()->json([
-            'success' => true,
-            'message' => 'Register berhasil. Kode verifikasi telah dikirim ke email.',
-            'data'    => ['email' => $user->email]
-        ], 201);
-    }
-
-    public function verifyEmail(Request $request)
-    {
-        $validasi = Validator::make($request->all(), [
-            'email' => 'required|email',
-            'kode'  => 'required|string'
-        ], [
-            'email.required' => 'Email wajib diisi.',
-            'email.email'    => 'Format email tidak valid.',
-            'kode.required'  => 'Kode verifikasi wajib diisi.',
-            'kode.string'    => 'Kode verifikasi harus berupa teks.'
-        ]);
-
-
-        if ($validasi->fails()) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Proses validasi gagal',
-                'data'    => $validasi->errors()
-            ], 422);
-        }
-
-        $user = User::where('email', $request->email)
-            ->where('verify_key', strtoupper($request->kode))
-            ->first();
-
-        if (!$user) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Kode verifikasi tidak valid'
-            ], 400);
-        }
-
-        if ($user->expired_key && Carbon::parse($user->expired_key)->isPast()) {
-            // kirim kode baru otomatis
-            $this->regenerateAndSendVerificationCode($user);
-            return response()->json([
-                'success' => false,
-                'message' => 'Kode kadaluarsa. Kode baru telah dikirim ke email.'
-            ], 400);
-        }
-
-        $user->email_verified_at = now();
-        $user->verify_key = null;
-        $user->expired_key = null;
-        $user->save();
-
-        return response()->json([
-            'success' => true,
-            'message' => 'Email berhasil diverifikasi'
-        ], 200);
-    }
-
-    public function resendCode(Request $request)
-    {
-        $validasi = Validator::make($request->all(), [
-            'email' => 'required|email',
-        ], [
-            'email.required' => 'Email wajib diisi.',
-            'email.email'    => 'Format email tidak valid.'
-        ]);
-
-        if ($validasi->fails()) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Proses validasi gagal',
-                'data'    => $validasi->errors()
-            ], 422);
-        }
-
-        $user = User::where('email', $request->email)->first();
-        if (!$user) {
-            return response()->json(['success' => false, 'message' => 'Email tidak ditemukan'], 404);
-        }
-        if ($user->email_verified_at) {
-            return response()->json(['success' => false, 'message' => 'Email sudah terverifikasi'], 400);
-        }
-
-        // throttle 60 detik
-        $key = "resend_code:{$user->id}";
-        if (Cache::has($key)) {
-            $wait = Cache::get($key) - time();
-            return response()->json([
-                'success' => false,
-                'message' => "Tunggu {$wait} detik untuk kirim ulang."
-            ], 429);
-        }
-
-        $this->regenerateAndSendVerificationCode($user);
-        Cache::put($key, time() + 60, 60);
-
-        return response()->json(['success' => true, 'message' => 'Kode verifikasi dikirim ulang'], 200);
-    }
 
     public function loginUser(Request $request)
     {
@@ -296,106 +153,8 @@ class AuthController extends Controller
     }
 
 
-    /** Regenerate (buat ulang) kode + kirim email – dipakai di verify/login/resend */
-    private function regenerateAndSendVerificationCode(User $user): void
-    {
-        $code    = Str::upper(Str::random(7));
-        $expires = now()->addHour();
 
-        $user->update([
-            'verify_key'  => $code,
-            'expired_key' => $expires,
-        ]);
 
-        $this->sendVerificationMail($user, $code, $expires);
-    }
-
-    public function adminCreateUserWithVerification(Request $request)
-    {
-
-        // validasi
-        $validasi = Validator::make($request->all(), [
-            'name'     => 'required|string|max:255',
-            'email'    => 'required|email|unique:users,email',
-            'password' => 'required|string|min:6',
-            'role_id'  => 'required|in:2,3', // 2=penghadap, 3=notaris
-        ], [
-            'name.required'     => 'Nama wajib diisi.',
-            'email.required'    => 'Email wajib diisi.',
-            'email.email'       => 'Format email tidak valid.',
-            'email.unique'      => 'Email sudah terdaftar.',
-            'password.required' => 'Password wajib diisi.',
-            'password.min'      => 'Password minimal 6 karakter.',
-            'role_id.required'  => 'Role wajib dipilih.',
-            'role_id.in'        => 'Role hanya boleh 2 (penghadap) atau 3 (notaris).',
-        ]);
-
-        if ($validasi->fails()) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Proses validasi gagal',
-                'data'    => $validasi->errors()
-            ], 422);
-        }
-
-        // generate kode & expiry utk verifikasi
-        $code    = Str::upper(Str::random(7));
-        $expires = now()->addHour();
-
-        // buat user (BELUM terverifikasi)
-        $user = User::create([
-            'role_id'     => (int) $request->role_id,
-            'name'        => $request->name,
-            'email'       => $request->email,
-            'password'    => Hash::make($request->password),
-            'verify_key'  => $code,
-            'expired_key' => $expires,
-            'email_verified_at' => null,
-        ]);
-
-        // kirim email verifikasi (pakai helper yg sdh ada)
-        $this->sendVerificationMail($user, $code, $expires);
-
-        return response()->json([
-            'success' => true,
-            'message' => 'User dibuat. Kode verifikasi telah dikirim ke email.',
-            'data'    => [
-                'id'      => $user->id,
-                'name'    => $user->name,
-                'email'   => $user->email,
-                'role_id' => $user->role_id,
-                'verified' => false,
-            ]
-        ], 201);
-    }
-
-    public function requestPasswordReset(Request $request)
-    {
-        $request->validate(['email' => 'required|email']);
-
-        // Throttle by email
-        $key = 'forgot:' . sha1($request->email);
-        if (RateLimiter::tooManyAttempts($key, 3)) {
-            $seconds = RateLimiter::availableIn($key);
-            return response()->json([
-                'success' => false,
-                'message' => "Terlalu sering. Coba lagi dalam {$seconds} detik."
-            ], 429);
-        }
-        RateLimiter::hit($key, 60); // reset 60 detik
-
-        $user = User::where('email', $request->email)->first();
-
-        // Selalu return “sukses” agar tidak bocorkan keberadaan email
-        if ($user) {
-            $this->createPasswordResetTokenAndMail($user);
-        }
-
-        return response()->json([
-            'success' => true,
-            'message' => 'Jika email terdaftar, kami telah mengirim tautan reset.'
-        ], 200);
-    }
 
     /** POST /auth/reset { email, token, password, confirmPassword } */
     public function resetPassword(Request $request)
@@ -451,32 +210,296 @@ class AuthController extends Controller
         ], 200);
     }
 
-    /** Helper: buat token reset + kirim email */
+    public function registerUser(Request $request)
+    {
+        $validasi = Validator::make($request->all(), [
+            'name'             => 'required',
+            'email'            => 'required|email|unique:users,email',
+            'password'         => 'required|min:6',
+            'confirmPassword'  => 'required|same:password',
+            'role_id'          => 'required|in:2,3',
+        ], [
+            'name.required'            => 'Nama wajib diisi.',
+            'email.required'           => 'Email wajib diisi.',
+            'email.email'              => 'Format email tidak valid.',
+            'email.unique'             => 'Email sudah terdaftar.',
+            'password.required'        => 'Password wajib diisi.',
+            'password.min'             => 'Password minimal 6 karakter.',
+            'confirmPassword.required' => 'Konfirmasi password wajib diisi.',
+            'confirmPassword.same'     => 'Konfirmasi password harus sama dengan password.',
+            'role_id.required'         => 'Role wajib dipilih.',
+            'role_id.in'               => 'Role hanya boleh 2 (penghadap) atau 3 (notaris).',
+        ]);
+
+        if ($validasi->fails()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Proses validasi gagal',
+                'data'    => $validasi->errors()
+            ], 422);
+        }
+
+        // Generate kode & expiry SEKALI
+        $code    = Str::upper(Str::random(7));
+        $expires = now()->addHour();
+
+        $user = User::create([
+            'role_id'     => $request->role_id,
+            'name'        => $request->name,
+            'email'       => $request->email,
+            'password'    => Hash::make($request->password),
+            'verify_key'  => $code,
+            'expired_key' => $expires,
+        ]);
+
+        // ✅ KIRIM EMAIL VERIFIKASI VIA QUEUE (NON-BLOCKING)
+        SendAuthEmailJob::dispatch(
+            $user->id,
+            'verification',
+            [
+                'code' => $code,
+                'expires_at' => $expires->toIso8601String(),
+            ]
+        );
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Register berhasil. Kode verifikasi telah dikirim ke email.',
+            'data'    => ['email' => $user->email]
+        ], 201);
+    }
+
+    public function verifyEmail(Request $request)
+    {
+        $validasi = Validator::make($request->all(), [
+            'email' => 'required|email',
+            'kode'  => 'required|string'
+        ], [
+            'email.required' => 'Email wajib diisi.',
+            'email.email'    => 'Format email tidak valid.',
+            'kode.required'  => 'Kode verifikasi wajib diisi.',
+            'kode.string'    => 'Kode verifikasi harus berupa teks.'
+        ]);
+
+        if ($validasi->fails()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Proses validasi gagal',
+                'data'    => $validasi->errors()
+            ], 422);
+        }
+
+        $user = User::where('email', $request->email)
+            ->where('verify_key', strtoupper($request->kode))
+            ->first();
+
+        if (!$user) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Kode verifikasi tidak valid'
+            ], 400);
+        }
+
+        if ($user->expired_key && Carbon::parse($user->expired_key)->isPast()) {
+            // ✅ REGENERATE DAN KIRIM VIA QUEUE
+            $this->regenerateAndSendVerificationCode($user);
+            return response()->json([
+                'success' => false,
+                'message' => 'Kode kadaluarsa. Kode baru telah dikirim ke email.'
+            ], 400);
+        }
+
+        $user->email_verified_at = now();
+        $user->verify_key = null;
+        $user->expired_key = null;
+        $user->save();
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Email berhasil diverifikasi'
+        ], 200);
+    }
+
+    public function resendCode(Request $request)
+    {
+        $validasi = Validator::make($request->all(), [
+            'email' => 'required|email',
+        ], [
+            'email.required' => 'Email wajib diisi.',
+            'email.email'    => 'Format email tidak valid.'
+        ]);
+
+        if ($validasi->fails()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Proses validasi gagal',
+                'data'    => $validasi->errors()
+            ], 422);
+        }
+
+        $user = User::where('email', $request->email)->first();
+        if (!$user) {
+            return response()->json(['success' => false, 'message' => 'Email tidak ditemukan'], 404);
+        }
+        if ($user->email_verified_at) {
+            return response()->json(['success' => false, 'message' => 'Email sudah terverifikasi'], 400);
+        }
+
+        // Throttle 60 detik
+        $key = "resend_code:{$user->id}";
+        if (Cache::has($key)) {
+            $wait = Cache::get($key) - time();
+            return response()->json([
+                'success' => false,
+                'message' => "Tunggu {$wait} detik untuk kirim ulang."
+            ], 429);
+        }
+
+        // ✅ REGENERATE DAN KIRIM VIA QUEUE
+        $this->regenerateAndSendVerificationCode($user);
+        Cache::put($key, time() + 60, 60);
+
+        return response()->json(['success' => true, 'message' => 'Kode verifikasi dikirim ulang'], 200);
+    }
+
+    public function adminCreateUserWithVerification(Request $request)
+    {
+        $validasi = Validator::make($request->all(), [
+            'name'     => 'required|string|max:255',
+            'email'    => 'required|email|unique:users,email',
+            'password' => 'required|string|min:6',
+            'role_id'  => 'required|in:2,3',
+        ], [
+            'name.required'     => 'Nama wajib diisi.',
+            'email.required'    => 'Email wajib diisi.',
+            'email.email'       => 'Format email tidak valid.',
+            'email.unique'      => 'Email sudah terdaftar.',
+            'password.required' => 'Password wajib diisi.',
+            'password.min'      => 'Password minimal 6 karakter.',
+            'role_id.required'  => 'Role wajib dipilih.',
+            'role_id.in'        => 'Role hanya boleh 2 (penghadap) atau 3 (notaris).',
+        ]);
+
+        if ($validasi->fails()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Proses validasi gagal',
+                'data'    => $validasi->errors()
+            ], 422);
+        }
+
+        // Generate kode & expiry
+        $code    = Str::upper(Str::random(7));
+        $expires = now()->addHour();
+
+        $user = User::create([
+            'role_id'     => (int) $request->role_id,
+            'name'        => $request->name,
+            'email'       => $request->email,
+            'password'    => Hash::make($request->password),
+            'verify_key'  => $code,
+            'expired_key' => $expires,
+            'email_verified_at' => null,
+        ]);
+
+        // ✅ KIRIM EMAIL VIA QUEUE
+        SendAuthEmailJob::dispatch(
+            $user->id,
+            'verification',
+            [
+                'code' => $code,
+                'expires_at' => $expires->toIso8601String(),
+            ]
+        );
+
+        return response()->json([
+            'success' => true,
+            'message' => 'User dibuat. Kode verifikasi telah dikirim ke email.',
+            'data'    => [
+                'id'      => $user->id,
+                'name'    => $user->name,
+                'email'   => $user->email,
+                'role_id' => $user->role_id,
+                'verified' => false,
+            ]
+        ], 201);
+    }
+
+    public function requestPasswordReset(Request $request)
+    {
+        $request->validate(['email' => 'required|email']);
+
+        // Throttle by email
+        $key = 'forgot:' . sha1($request->email);
+        if (RateLimiter::tooManyAttempts($key, 3)) {
+            $seconds = RateLimiter::availableIn($key);
+            return response()->json([
+                'success' => false,
+                'message' => "Terlalu sering. Coba lagi dalam {$seconds} detik."
+            ], 429);
+        }
+        RateLimiter::hit($key, 60);
+
+        $user = User::where('email', $request->email)->first();
+
+        if ($user) {
+            // ✅ KIRIM VIA QUEUE
+            $this->createPasswordResetTokenAndMail($user);
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Jika email terdaftar, kami telah mengirim tautan reset.'
+        ], 200);
+    }
+
+    /** 
+     * ✅ HELPER: Regenerate kode + kirim via queue 
+     */
+    private function regenerateAndSendVerificationCode(User $user): void
+    {
+        $code    = Str::upper(Str::random(7));
+        $expires = now()->addHour();
+
+        $user->update([
+            'verify_key'  => $code,
+            'expired_key' => $expires,
+        ]);
+
+        // ✅ DISPATCH JOB
+        SendAuthEmailJob::dispatch(
+            $user->id,
+            'verification',
+            [
+                'code' => $code,
+                'expires_at' => $expires->toIso8601String(),
+            ]
+        );
+    }
+
+    /** 
+     * ✅ HELPER: Buat token reset + kirim via queue 
+     */
     private function createPasswordResetTokenAndMail(User $user): void
     {
         $plainToken = Str::random(64);
         $hashed     = Hash::make($plainToken);
         $expiresAt  = now()->addMinutes(60);
 
-        // upsert (1 email = 1 row)
+        // Upsert token
         DB::table('password_reset_tokens')->updateOrInsert(
             ['email' => $user->email],
             ['token' => $hashed, 'created_at' => now(), 'expired_at' => $expiresAt]
         );
 
-        $frontend = rtrim(config('app.frontend_url'), '/');
-        $resetUrl = $frontend . '/reset-password?' . http_build_query([
-            'email' => $user->email,
-            'token' => $plainToken,
-        ]);
-
-        $details = [
-            'name'       => $user->name,
-            'website'    => config('app.name'),
-            'url'        => $resetUrl,
-            'expires_at' => $expiresAt->toIso8601String(),
-        ];
-
-        Mail::to($user->email)->send(new ResetPasswordMail($details));
+        // ✅ DISPATCH JOB
+        SendAuthEmailJob::dispatch(
+            $user->id,
+            'reset_password',
+            [
+                'token' => $plainToken,
+                'expires_at' => $expiresAt->toIso8601String(),
+            ]
+        );
     }
 }
