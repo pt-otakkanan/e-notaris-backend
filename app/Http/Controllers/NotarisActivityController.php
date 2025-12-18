@@ -789,19 +789,34 @@ class NotarisActivityController extends Controller
                 // dispatch(new SendActivityNotificationJob($activityId, $orderedClientIds));
 
                 // Atau jika tidak punya queue, minimal gunakan afterCommit agar tidak blocking
-                DB::afterCommit(function () use ($orderedClientIds, $activityId) {
-                    dispatch(function () use ($orderedClientIds, $activityId) {
+                // DB::afterCommit(function () use ($orderedClientIds, $activityId) {
+                //     dispatch(function () use ($orderedClientIds, $activityId) {
+                //         try {
+                //             $activity = Activity::find($activityId);
+                //             $clientUsers = User::whereIn('id', $orderedClientIds)->get();
+                //             foreach ($clientUsers as $client) {
+                //                 $this->notifyClientActivity($client, $activity, 'added');
+                //             }
+                //         } catch (\Throwable $e) {
+                //             Log::error('Failed to send notifications: ' . $e->getMessage());
+                //         }
+                //     })->afterResponse();
+                // });
+
+                if (!$isWithoutClient && !empty($orderedClientIds)) {
+                    $clientUsers = User::whereIn('id', $orderedClientIds)->get();
+                    foreach ($clientUsers as $client) {
                         try {
-                            $activity = Activity::find($activityId);
-                            $clientUsers = User::whereIn('id', $orderedClientIds)->get();
-                            foreach ($clientUsers as $client) {
-                                $this->notifyClientActivity($client, $activity, 'added');
-                            }
+                            $this->notifyClientActivity($client, $activity, 'added');
                         } catch (\Throwable $e) {
-                            Log::error('Failed to send notifications: ' . $e->getMessage());
+                            Log::error('Failed to send notification to client', [
+                                'user_id' => $client->id,
+                                'activity_id' => $activity->id,
+                                'error' => $e->getMessage()
+                            ]);
                         }
-                    })->afterResponse();
-                });
+                    }
+                }
             }
 
             // ✅ RESPONSE FORMAT yang konsisten
