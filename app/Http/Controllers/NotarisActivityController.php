@@ -803,9 +803,11 @@ class NotarisActivityController extends Controller
                 //         }
                 //     })->afterResponse();
                 // });
-                foreach ($orderedClientIds as $clientId) {
-                    // Dispatch ke queue (non-blocking!)
-                    SendActivityNotificationJob::dispatch($clientId, $activity->id, 'added');
+                // ✅ KIRIM NOTIFIKASI VIA QUEUE
+                if (!$isWithoutClient && !empty($orderedClientIds)) {
+                    foreach ($orderedClientIds as $clientId) {
+                        SendActivityNotificationJob::dispatch($clientId, $activityId, 'added');
+                    }
                 }
             }
 
