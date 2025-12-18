@@ -793,7 +793,7 @@ class NotarisActivityController extends Controller
             ], 404);
         }
 
-        // LOCK: aktivitas tanpa penghadap tidak boleh diubah
+        // LOCK: tidak bisa ubah is_without_client setelah dibuat
         if ($activity->is_without_client) {
             return response()->json([
                 'success' => false,
@@ -802,14 +802,11 @@ class NotarisActivityController extends Controller
             ], 422);
         }
 
-        // ================= VALIDASI =================
         $validasi = Validator::make($request->all(), [
             'name' => 'sometimes|required|string|max:255',
             'deed_id' => 'sometimes|required|exists:deeds,id',
-
-            // FRONTEND KIRIM parties
-            'parties' => 'sometimes|array',
-            'parties.*.value' => 'required|integer|exists:users,id',
+            'client_ids' => 'sometimes|array',
+            'client_ids.*' => 'integer|exists:users,id',
         ]);
 
         if ($validasi->fails()) {
@@ -824,65 +821,48 @@ class NotarisActivityController extends Controller
         $now = now();
 
         try {
-            [$activity, $toAdd, $actuallyRemoved] = DB::transaction(function () use ($data, $activity, $now) {
+            // ✅ RETURN HANYA ID dari transaction, bukan full object
+            [$activityId, $toAddIds, $actuallyRemovedIds] = DB::transaction(function () use ($data, $activity, $now) {
 
-                // ================= NORMALISASI CLIENT IDS =================
-                if (isset($data['parties'])) {
-                    $clientIds = collect($data['parties'])
-                        ->pluck('value')
-                        ->map(fn($v) => (int) $v)
-                        ->values()
-                        ->all();
-
-                    $validIds = User::whereIn('id', $clientIds)
+                // 1) Tentukan orderedClientIds
+                if (isset($data['client_ids'])) {
+                    $validIds = User::whereIn('id', $data['client_ids'])
                         ->where('role_id', 2)
                         ->pluck('id')
                         ->all();
 
-                    if (count($validIds) !== count($clientIds)) {
-                        throw new \Illuminate\Validation\ValidationException(
-                            Validator::make([], []),
-                            response()->json([
-                                'success' => false,
-                                'message' => 'Semua penghadap harus memiliki role penghadap.',
-                                'data' => null
-                            ], 422)
-                        );
-                    }
-
-                    // jaga urutan sesuai frontend
                     $orderedClientIds = [];
-                    foreach ($clientIds as $cid) {
+                    foreach ($data['client_ids'] as $cid) {
                         if (in_array($cid, $validIds, true)) {
                             $orderedClientIds[] = $cid;
                         }
                     }
                 } else {
-                    // jika parties tidak dikirim → pakai existing order
-                    $orderedClientIds = ClientActivity::where('activity_id', $activity->id)
+                    $orderedClientIds = $activity->clientActivities()
                         ->orderBy('order', 'asc')
                         ->pluck('user_id')
                         ->all();
                 }
 
-                // ================= UPDATE DATA AKTIVITAS =================
+                // 2) Update nama jika ada
                 if (isset($data['name'])) {
                     $activity->name = $data['name'];
+                    $activity->save();
                 }
 
+                // 3) Update deed_id jika berubah
                 if (isset($data['deed_id']) && (int)$data['deed_id'] !== (int)$activity->deed_id) {
                     $activity->deed_id = $data['deed_id'];
+                    $activity->save();
                 }
-
-                $activity->save();
 
                 $toAdd = [];
                 $actuallyRemoved = [];
 
-                // ================= SYNC CLIENT (JIKA ADA parties) =================
-                if (isset($data['parties'])) {
+                // 4) Jika client_ids disediakan -> reset pivot, regen DocumentRequirement, sinkron client drafts
+                if (isset($data['client_ids'])) {
 
-                    // --- reset pivot client_activity ---
+                    // reset pivot
                     ClientActivity::where('activity_id', $activity->id)->delete();
 
                     $rows = [];
@@ -897,12 +877,11 @@ class NotarisActivityController extends Controller
                             'updated_at' => $now,
                         ];
                     }
-
-                    if (!empty($rows)) {
+                    if ($rows) {
                         ClientActivity::insert($rows);
                     }
 
-                    // ================= REGEN DOCUMENT REQUIREMENT =================
+                    // regen document requirements
                     DocumentRequirement::where('activity_notaris_id', $activity->id)->delete();
 
                     $templates = DeedRequirementTemplate::where('deed_id', $activity->deed_id)
@@ -932,22 +911,24 @@ class NotarisActivityController extends Controller
                         }
                     } else {
                         $actReq = Requirement::where('activity_id', $activity->id)->get();
-                        foreach ($actReq as $req) {
-                            foreach ($orderedClientIds as $uid) {
-                                $docRows[] = [
-                                    'activity_notaris_id' => $activity->id,
-                                    'user_id' => $uid,
-                                    'deed_requirement_template_id' => null,
-                                    'requirement_id' => $req->id,
-                                    'requirement_name' => $req->name,
-                                    'is_file_snapshot' => (bool)$req->is_file,
-                                    'value' => null,
-                                    'file' => null,
-                                    'file_path' => null,
-                                    'status_approval' => 'pending',
-                                    'created_at' => $now,
-                                    'updated_at' => $now,
-                                ];
+                        if ($actReq->count() && !empty($orderedClientIds)) {
+                            foreach ($actReq as $req) {
+                                foreach ($orderedClientIds as $uid) {
+                                    $docRows[] = [
+                                        'activity_notaris_id' => $activity->id,
+                                        'user_id' => $uid,
+                                        'deed_requirement_template_id' => null,
+                                        'requirement_id' => $req->id,
+                                        'requirement_name' => $req->name,
+                                        'is_file_snapshot' => (bool)$req->is_file,
+                                        'value' => null,
+                                        'file' => null,
+                                        'file_path' => null,
+                                        'status_approval' => 'pending',
+                                        'created_at' => $now,
+                                        'updated_at' => $now,
+                                    ];
+                                }
                             }
                         }
                     }
@@ -956,17 +937,21 @@ class NotarisActivityController extends Controller
                         DocumentRequirement::insert($docRows);
                     }
 
-                    // ================= SYNC CLIENT DRAFT =================
+                    // ===== sync client drafts =====
                     $draft = DraftDeed::firstOrCreate(
                         ['activity_id' => $activity->id],
                         [
+                            'custom_value_template' => null,
+                            'reading_schedule' => null,
                             'status_approval' => 'pending',
+                            'file' => null,
+                            'file_path' => null,
                             'created_at' => $now,
                             'updated_at' => $now,
                         ]
                     );
 
-                    // lock jika sudah approved/rejected
+                    // tidak boleh merubah jika sudah ada yang approved/rejected
                     $locked = ClientDraft::where('draft_deed_id', $draft->id)
                         ->whereIn('status_approval', ['approved', 'rejected'])
                         ->exists();
@@ -976,7 +961,7 @@ class NotarisActivityController extends Controller
                             Validator::make([], []),
                             response()->json([
                                 'success' => false,
-                                'message' => 'Tidak dapat mengubah penghadap karena draft sudah diproses.',
+                                'message' => 'Tidak dapat mengubah daftar klien karena sudah ada yang menyetujui/menolak draft.',
                                 'data' => null
                             ], 422)
                         );
@@ -1020,38 +1005,41 @@ class NotarisActivityController extends Controller
                     }
                 }
 
-                // eager load response
-                $activity->load([
-                    'deed',
-                    'notaris',
-                    'track',
-                    'clients' => fn($q) => $q->orderBy('client_activity.order', 'asc'),
-                    'clientActivities' => fn($q) => $q->orderBy('order', 'asc'),
-                    'requirements',
-                    'documentRequirements',
-                    'draft.clientDrafts.user',
-                    'schedules',
-                ]);
-
-                return [$activity, $toAdd, $actuallyRemoved];
+                // ✅ Return hanya IDs, bukan objects dengan relations
+                return [$activity->id, $toAdd, $actuallyRemoved];
             });
 
-            // ================= AFTER COMMIT NOTIFICATION =================
-            DB::afterCommit(function () use ($toAdd, $actuallyRemoved, $activity) {
-                if (!empty($toAdd)) {
-                    $users = User::whereIn('id', $toAdd)->get();
-                    foreach ($users as $u) {
-                        $this->notifyClientActivity($u, $activity, 'added');
-                    }
-                }
+            // ✅ OPTIMASI: Load minimal relations untuk response
+            $activity = Activity::with([
+                'deed:id,name',
+                'notaris:id,name,email',
+                'clients:id,name,email', // tanpa pivot ordering detail
+            ])->findOrFail($activityId);
 
-                if (!empty($actuallyRemoved)) {
-                    $users = User::whereIn('id', $actuallyRemoved)->get();
-                    foreach ($users as $u) {
-                        $this->notifyClientActivity($u, $activity, 'removed');
+            // ✅ OPTIMASI: Notifikasi async (non-blocking)
+            if (!empty($toAddIds) || !empty($actuallyRemovedIds)) {
+                dispatch(function () use ($toAddIds, $actuallyRemovedIds, $activityId) {
+                    try {
+                        $activity = Activity::find($activityId);
+
+                        if (!empty($toAddIds)) {
+                            $addUsers = User::whereIn('id', $toAddIds)->get();
+                            foreach ($addUsers as $u) {
+                                $this->notifyClientActivity($u, $activity, 'added');
+                            }
+                        }
+
+                        if (!empty($actuallyRemovedIds)) {
+                            $removeUsers = User::whereIn('id', $actuallyRemovedIds)->get();
+                            foreach ($removeUsers as $u) {
+                                $this->notifyClientActivity($u, $activity, 'removed');
+                            }
+                        }
+                    } catch (\Throwable $e) {
+                        Log::error('Failed to send update notifications: ' . $e->getMessage());
                     }
-                }
-            });
+                })->afterResponse();
+            }
 
             return response()->json([
                 'success' => true,
@@ -1059,9 +1047,8 @@ class NotarisActivityController extends Controller
                 'data' => $activity
             ], 200);
         } catch (\Throwable $e) {
-            Log::error('Activity update failed', [
-                'error' => $e->getMessage(),
-                'trace' => $e->getTraceAsString(),
+            Log::error('Activity update failed: ' . $e->getMessage(), [
+                'trace' => $e->getTraceAsString()
             ]);
 
             return response()->json([
