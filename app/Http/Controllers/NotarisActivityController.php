@@ -17,6 +17,7 @@ use App\Models\DocumentRequirement;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 use App\Models\DeedRequirementTemplate;
+use App\Jobs\SendActivityNotificationJob;
 use Illuminate\Support\Facades\Validator;
 use App\Models\Requirement;              // requirement milik activity
 
@@ -802,20 +803,9 @@ class NotarisActivityController extends Controller
                 //         }
                 //     })->afterResponse();
                 // });
-
-                if (!$isWithoutClient && !empty($orderedClientIds)) {
-                    $clientUsers = User::whereIn('id', $orderedClientIds)->get();
-                    foreach ($clientUsers as $client) {
-                        try {
-                            $this->notifyClientActivity($client, $activity, 'added');
-                        } catch (\Throwable $e) {
-                            Log::error('Failed to send notification to client', [
-                                'user_id' => $client->id,
-                                'activity_id' => $activity->id,
-                                'error' => $e->getMessage()
-                            ]);
-                        }
-                    }
+                foreach ($orderedClientIds as $clientId) {
+                    // Dispatch ke queue (non-blocking!)
+                    SendActivityNotificationJob::dispatch($clientId, $activity->id, 'added');
                 }
             }
 
