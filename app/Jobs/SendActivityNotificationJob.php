@@ -18,7 +18,7 @@ class SendActivityNotificationJob implements ShouldQueue
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
     public $tries = 3; // Retry 3x jika gagal
-    public $timeout = 60; // Timeout 60 detik
+    public $timeout = 120; // Timeout 60 detik
     public $backoff = [10, 30, 60]; // Retry delay
 
     protected $userId;
@@ -35,8 +35,9 @@ class SendActivityNotificationJob implements ShouldQueue
     public function handle()
     {
         try {
-            $client = User::find($this->userId);
-            $activity = Activity::with(['notaris', 'schedules'])->find($this->activityId);
+            $client = User::find((int)$this->userId);
+            $activity = Activity::with(['notaris', 'schedules'])->find((int)$this->activityId);
+
 
             if (!$client || !$activity) {
                 Log::warning('Client or Activity not found', [
