@@ -196,17 +196,8 @@ class NotarisActivityController extends Controller
             });
 
             // ✅ OPTIMASI: Kirim email ASYNC (non-blocking)
-            dispatch(function () use ($client, $activity) {
-                try {
-                    $this->notifyClientActivity($client, $activity, 'added');
-                } catch (\Throwable $e) {
-                    Log::error('Failed to send add user notification', [
-                        'user_id' => $client->id,
-                        'activity_id' => $activity->id,
-                        'error' => $e->getMessage()
-                    ]);
-                }
-            })->afterResponse();
+            // ✅ KIRIM NOTIFIKASI VIA QUEUE
+            SendActivityNotificationJob::dispatch($userid, $activity->id, 'added');
 
             return response()->json([
                 'success' => true,
@@ -277,17 +268,8 @@ class NotarisActivityController extends Controller
             // ✅ OPTIMASI: Kirim email ASYNC (non-blocking)
             $client = User::find($userid);
             if ($client) {
-                dispatch(function () use ($client, $activity) {
-                    try {
-                        $this->notifyClientActivity($client, $activity, 'removed');
-                    } catch (\Throwable $e) {
-                        Log::error('Failed to send remove user notification', [
-                            'user_id' => $client->id,
-                            'activity_id' => $activity->id,
-                            'error' => $e->getMessage()
-                        ]);
-                    }
-                })->afterResponse();
+                // ✅ KIRIM NOTIFIKASI VIA QUEUE
+                SendActivityNotificationJob::dispatch($userid, $activityid, 'removed');
             }
 
             return response()->json([
@@ -1069,29 +1051,17 @@ class NotarisActivityController extends Controller
                 'clients:id,name,email', // tanpa pivot ordering detail
             ])->findOrFail($activityId);
 
-            // ✅ OPTIMASI: Notifikasi async (non-blocking)
-            if (!empty($toAddIds) || !empty($actuallyRemovedIds)) {
-                dispatch(function () use ($toAddIds, $actuallyRemovedIds, $activityId) {
-                    try {
-                        $activity = Activity::find($activityId);
+            // ✅ KIRIM NOTIFIKASI VIA QUEUE
+            if (!empty($toAddIds)) {
+                foreach ($toAddIds as $clientId) {
+                    SendActivityNotificationJob::dispatch($clientId, $activityId, 'added');
+                }
+            }
 
-                        if (!empty($toAddIds)) {
-                            $addUsers = User::whereIn('id', $toAddIds)->get();
-                            foreach ($addUsers as $u) {
-                                $this->notifyClientActivity($u, $activity, 'added');
-                            }
-                        }
-
-                        if (!empty($actuallyRemovedIds)) {
-                            $removeUsers = User::whereIn('id', $actuallyRemovedIds)->get();
-                            foreach ($removeUsers as $u) {
-                                $this->notifyClientActivity($u, $activity, 'removed');
-                            }
-                        }
-                    } catch (\Throwable $e) {
-                        Log::error('Failed to send update notifications: ' . $e->getMessage());
-                    }
-                })->afterResponse();
+            if (!empty($actuallyRemovedIds)) {
+                foreach ($actuallyRemovedIds as $clientId) {
+                    SendActivityNotificationJob::dispatch($clientId, $activityId, 'removed');
+                }
             }
 
             return response()->json([
