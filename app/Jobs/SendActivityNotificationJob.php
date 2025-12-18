@@ -18,7 +18,7 @@ class SendActivityNotificationJob implements ShouldQueue
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
     public $tries = 3; // Retry 3x jika gagal
-    public $timeout = 120; // Timeout 60 detik
+    public $timeout = 60; // Timeout 60 detik
     public $backoff = [10, 30, 60]; // Retry delay
 
     protected $userId;
