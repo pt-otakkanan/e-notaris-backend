@@ -89,7 +89,7 @@ class NotarisActivityController extends Controller
         });
     }
 
-    // ---------- ADD USER (dengan email) ----------
+    // ========== OPTIMIZED ADD USER ==========
     public function addUser(Request $request, $userid, $activityid)
     {
         $user = $request->user();
@@ -134,76 +134,98 @@ class NotarisActivityController extends Controller
         $lastOrder = ClientActivity::where('activity_id', $activityid)->max('order') ?? 0;
         $now = now();
 
-        DB::transaction(function () use ($activity, $userid, $lastOrder, $now) {
-            // 1) Tambah pivot
-            ClientActivity::create([
-                'user_id'         => $userid,
-                'activity_id'     => $activity->id,
-                'status_approval' => 'pending',
-                'order'           => $lastOrder + 1,
-                'created_at'      => $now,
-                'updated_at'      => $now,
+        try {
+            DB::transaction(function () use ($activity, $userid, $lastOrder, $now) {
+                // 1) Tambah pivot
+                ClientActivity::create([
+                    'user_id'         => $userid,
+                    'activity_id'     => $activity->id,
+                    'status_approval' => 'pending',
+                    'order'           => $lastOrder + 1,
+                    'created_at'      => $now,
+                    'updated_at'      => $now,
+                ]);
+
+                // 2) Ambil requirement milik ACTIVITY atau fallback ke template deed
+                $templates = DeedRequirementTemplate::where('deed_id', $activity->deed_id)
+                    ->where('is_active', true)
+                    ->get();
+
+                $docRows = [];
+                if ($templates->count()) {
+                    foreach ($templates as $tmpl) {
+                        $docRows[] = [
+                            'activity_notaris_id'           => $activity->id,
+                            'user_id'                       => $userid,
+                            'deed_requirement_template_id'  => $tmpl->id,
+                            'requirement_id'                => $tmpl->requirement_id ?? null,
+                            'requirement_name'              => $tmpl->requirement_name,
+                            'is_file_snapshot'              => (bool)($tmpl->is_file_snapshot ?? false),
+                            'value'                         => null,
+                            'file'                          => null,
+                            'file_path'                     => null,
+                            'status_approval'               => 'pending',
+                            'created_at'                    => $now,
+                            'updated_at'                    => $now,
+                        ];
+                    }
+                } else {
+                    // fallback: use Requirement records
+                    $actReq = Requirement::where('activity_id', $activity->id)->get();
+                    foreach ($actReq as $req) {
+                        $docRows[] = [
+                            'activity_notaris_id' => $activity->id,
+                            'user_id'             => $userid,
+                            'requirement_id'      => $req->id,
+                            'requirement_name'    => $req->name,
+                            'is_file_snapshot'    => (bool)$req->is_file,
+                            'value'               => null,
+                            'file'                => null,
+                            'file_path'           => null,
+                            'status_approval'     => 'pending',
+                            'created_at'          => $now,
+                            'updated_at'          => $now,
+                        ];
+                    }
+                }
+
+                if (!empty($docRows)) {
+                    DocumentRequirement::insert($docRows);
+                }
+            });
+
+            // ✅ OPTIMASI: Kirim email ASYNC (non-blocking)
+            dispatch(function () use ($client, $activity) {
+                try {
+                    $this->notifyClientActivity($client, $activity, 'added');
+                } catch (\Throwable $e) {
+                    Log::error('Failed to send add user notification', [
+                        'user_id' => $client->id,
+                        'activity_id' => $activity->id,
+                        'error' => $e->getMessage()
+                    ]);
+                }
+            })->afterResponse();
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Klien berhasil ditambahkan ke aktivitas'
+            ], 201);
+        } catch (\Throwable $e) {
+            Log::error('Add user failed', [
+                'user_id' => $userid,
+                'error' => $e->getMessage()
             ]);
 
-            // 2) Ambil requirement milik ACTIVITY atau fallback ke template deed
-            $templates = DeedRequirementTemplate::where('deed_id', $activity->deed_id)
-                ->where('is_active', true)
-                ->get();
-
-            $docRows = [];
-            if ($templates->count()) {
-                foreach ($templates as $tmpl) {
-                    $docRows[] = [
-                        'activity_notaris_id'           => $activity->id,
-                        'user_id'                       => $userid,
-                        'deed_requirement_template_id'  => $tmpl->id,
-                        'requirement_id'                => $tmpl->requirement_id ?? null,
-                        'requirement_name'              => $tmpl->requirement_name,
-                        'is_file_snapshot'              => (bool)($tmpl->is_file_snapshot ?? false),
-                        'value'                         => null,
-                        'file'                          => null,
-                        'file_path'                     => null,
-                        'status_approval'               => 'pending',
-                        'created_at'                    => $lastOrder ? now() : now(),
-                        'updated_at'                    => now(),
-                    ];
-                }
-            } else {
-                // fallback: use Requirement records
-                $actReq = Requirement::where('activity_id', $activity->id)->get();
-                foreach ($actReq as $req) {
-                    $docRows[] = [
-                        'activity_notaris_id' => $activity->id,
-                        'user_id'             => $userid,
-                        'requirement_id'      => $req->id,
-                        'requirement_name'    => $req->name,
-                        'is_file_snapshot'    => (bool)$req->is_file,
-                        'value'               => null,
-                        'file'                => null,
-                        'file_path'           => null,
-                        'status_approval'     => 'pending',
-                        'created_at'          => now(),
-                        'updated_at'          => now(),
-                    ];
-                }
-            }
-
-            if (!empty($docRows)) {
-                DocumentRequirement::insert($docRows);
-            }
-        });
-
-        // Email — kirim setelah commit
-        $this->notifyClientActivity($client, $activity, 'added');
-
-        return response()->json([
-            'success' => true,
-            'message' => 'Klien berhasil ditambahkan ke aktivitas'
-        ], 201);
+            return response()->json([
+                'success' => false,
+                'message' => 'Gagal menambahkan klien: ' . $e->getMessage(),
+                'data' => null
+            ], 500);
+        }
     }
 
-    // ---------- REMOVE USER (dengan email) ----------
-
+    // ========== OPTIMIZED REMOVE USER ==========
     public function removeUser(Request $request, $userid, $activityid)
     {
         $user = $request->user();
@@ -240,27 +262,51 @@ class NotarisActivityController extends Controller
             ], 409);
         }
 
-        DB::transaction(function () use ($activityid, $userid) {
-            DocumentRequirement::where('activity_notaris_id', $activityid)
-                ->where('user_id', $userid)
-                ->delete();
+        try {
+            DB::transaction(function () use ($activityid, $userid) {
+                DocumentRequirement::where('activity_notaris_id', $activityid)
+                    ->where('user_id', $userid)
+                    ->delete();
 
-            ClientActivity::where('activity_id', $activityid)
-                ->where('user_id', $userid)
-                ->delete();
-        });
+                ClientActivity::where('activity_id', $activityid)
+                    ->where('user_id', $userid)
+                    ->delete();
+            });
 
-        // Ambil data klien untuk email
-        $client = User::find($userid);
-        if ($client) {
-            $this->notifyClientActivity($client, $activity, 'removed');
+            // ✅ OPTIMASI: Kirim email ASYNC (non-blocking)
+            $client = User::find($userid);
+            if ($client) {
+                dispatch(function () use ($client, $activity) {
+                    try {
+                        $this->notifyClientActivity($client, $activity, 'removed');
+                    } catch (\Throwable $e) {
+                        Log::error('Failed to send remove user notification', [
+                            'user_id' => $client->id,
+                            'activity_id' => $activity->id,
+                            'error' => $e->getMessage()
+                        ]);
+                    }
+                })->afterResponse();
+            }
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Klien berhasil dihapus dari aktivitas',
+                'data'    => null
+            ], 200);
+        } catch (\Throwable $e) {
+            Log::error('Remove user failed', [
+                'user_id' => $userid,
+                'activity_id' => $activityid,
+                'error' => $e->getMessage()
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Gagal menghapus klien: ' . $e->getMessage(),
+                'data' => null
+            ], 500);
         }
-
-        return response()->json([
-            'success' => true,
-            'message' => 'Klien berhasil dihapus dari aktivitas',
-            'data'    => null
-        ], 200);
     }
 
     public function index(Request $request)
