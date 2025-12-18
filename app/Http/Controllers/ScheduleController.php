@@ -10,6 +10,7 @@ use App\Mail\ScheduleMail;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail;
+use App\Jobs\SendScheduleNotificationJob;
 use Illuminate\Support\Facades\Validator;
 
 class ScheduleController extends Controller
@@ -131,7 +132,8 @@ class ScheduleController extends Controller
         });
 
         // === Kirim notifikasi setelah commit ===
-        $this->notifySchedule($schedule->fresh(['activity']), 'created');
+        // $this->notifySchedule($schedule->fresh(['activity']), 'created');
+        SendScheduleNotificationJob::dispatch($schedule->id, 'created');
 
         return response()->json([
             'success' => true,
@@ -180,7 +182,8 @@ class ScheduleController extends Controller
         });
 
         // === Kirim notifikasi setelah commit ===
-        $this->notifySchedule($schedule->fresh(['activity']), 'updated');
+        // $this->notifySchedule($schedule->fresh(['activity']), 'updated');
+        SendScheduleNotificationJob::dispatch($schedule->id, 'updated');
 
         return response()->json([
             'success' => true,
@@ -209,7 +212,8 @@ class ScheduleController extends Controller
         });
 
         // === Kirim notifikasi setelah commit ===
-        $this->notifySchedule($snapshot, 'deleted');
+        // $this->notifySchedule($snapshot, 'deleted');
+        SendScheduleNotificationJob::dispatch($schedule->id, 'deleted');
 
         return response()->json([
             'success' => true,
