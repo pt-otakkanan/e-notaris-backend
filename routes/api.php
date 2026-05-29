@@ -47,6 +47,12 @@ Route::get('/', function () {
         'message' => 'Tidak diizinkan mengakses. Pastikan role sudah benar atau token tidak kadaluarsa',
     ], 401);
 })->name('login');
+Route::get('/test-active', function () {
+    return response()->json([
+        'success' => true,
+        'message' => 'BE Aktif gan',
+    ], 401);
+});
 
 // Landing Page
 Route::prefix('partners')->group(function () {
