@@ -225,4 +225,32 @@ class LandingController extends Controller
             'data'    => $data,
         ], 200);
     }
+
+    public function templateDetail($id)
+    {
+        $template = Template::whereIn('user_id', function ($sub) {
+                $sub->select('id')
+                    ->from('users')
+                    ->where('role_id', 1); // hanya admin
+            })->find($id);
+
+        if (!$template) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Template tidak ditemukan atau tidak bersifat publik',
+            ], 404);
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Detail template berhasil diambil',
+            'data'    => [
+                'id'           => $template->id,
+                'title'        => $template->name,
+                'desc'         => $template->description,
+                'logo'         => $template->logo,
+                'custom_value' => $template->custom_value,
+            ]
+        ], 200);
+    }
 }

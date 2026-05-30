@@ -360,16 +360,22 @@ class ScheduleController extends Controller
 
         // ambil semua schedule yang activity-nya punya relasi ke user ini lewat clientActivities
         // tambahkan jika itu notaris maka dilihat dari activity.user_notaris_id = user.id
-        $query = Schedule::with('activity')
-            ->whereHas('activity', function ($sub) use ($user) {
-                $sub->whereHas('clientActivities', function ($sub2) use ($user) {
-                    $sub2->where('user_id', $user->id);
+        // jika user adalah admin (role_id === 1), maka tampilkan seluruh jadwal yang ada
+        $query = Schedule::with('activity');
+
+        if ($user->role_id !== 1) {
+            $query->whereHas('activity', function ($sub) use ($user) {
+                $sub->where(function ($subInner) use ($user) {
+                    $subInner->whereHas('clientActivities', function ($sub2) use ($user) {
+                        $sub2->where('user_id', $user->id);
+                    });
+                    // jika user adalah notaris, maka ambil juga jadwal dari activity yang dia buat
+                    if ($user->role_id === 3) {
+                        $subInner->orWhere('user_notaris_id', $user->id);
+                    }
                 });
-                // jika user adalah notaris, maka ambil juga jadwal dari activity yang dia buat
-                if ($user->role_id === 3) {
-                    $sub->orWhere('user_notaris_id', $user->id);
-                }
             });
+        }
         // scope (today|upcoming|past)
         if ($scope === 'today') {
             $query->today();

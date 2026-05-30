@@ -63,6 +63,7 @@ Route::prefix('partners')->group(function () {
 Route::prefix('landing')->group(function () {
     Route::get('/statistics',                 [LandingController::class, 'statistics']);
     Route::get('/templates',                 [LandingController::class, 'templates']);
+    Route::get('/templates/{id}',            [LandingController::class, 'templateDetail']);
     Route::get('/blogs',            [LandingController::class, 'blogs']);
     Route::get('/blogs/{id}',             [BlogController::class, 'show']);
     Route::get('/blog-categories',  [LandingController::class, 'blogCategories']);
