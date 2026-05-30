@@ -136,7 +136,7 @@ class SendActivityNotificationJob implements ShouldQueue
         }
 
         $frontend = rtrim(config('app.frontend_url'), '/');
-        $url = $frontend . '/app/activity/' . $activity->id;
+        $url = $frontend . '/app/project-flow/' . $activity->id;
 
         return [
             'type' => $type,

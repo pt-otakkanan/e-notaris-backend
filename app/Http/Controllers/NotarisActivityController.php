@@ -43,7 +43,7 @@ class NotarisActivityController extends Controller
         }
 
         $frontend = rtrim(config('app.frontend_url'), '/');
-        $url = $frontend . '/app/activity/' . $activity->id;
+        $url = $frontend . '/app/project-flow/' . $activity->id;
 
         return [
             'type'          => $type, // 'added' | 'removed'
