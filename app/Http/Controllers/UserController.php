@@ -616,7 +616,13 @@ class UserController extends Controller
                     ],
                 ], 200);
             });
-        } catch (\Exception $e) {
+        } catch (\Throwable $e) {
+            \Log::error('Update identity profile failed', [
+                'user_id' => isset($user) ? $user->id : null,
+                'error'   => $e->getMessage(),
+                'trace'   => $e->getTraceAsString(),
+            ]);
+
             return response()->json([
                 'success' => false,
                 'message' => 'Terjadi kesalahan sistem. Silakan coba lagi.'
