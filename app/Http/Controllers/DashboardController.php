@@ -13,9 +13,17 @@ class DashboardController extends Controller
     {
         $user = $request->user();
         $roleName = strtolower(optional($user->roles)->name); // relasi roles() → Role::name
+        $currentYear = date('Y');
 
         switch ($roleName) {
             case 'admin':
+                $monthlyActivities = [];
+                for ($m = 1; $m <= 12; $m++) {
+                    $monthlyActivities[] = Activity::whereYear('created_at', $currentYear)
+                        ->whereMonth('created_at', $m)
+                        ->count();
+                }
+
                 return response()->json([
                     'role'            => 'admin',
                     'metrics'         => [
@@ -32,9 +40,18 @@ class DashboardController extends Controller
                     ],
                     'recent_activities' => Activity::with(['deed', 'notaris', 'clients'])
                         ->orderByDesc('id')->limit(5)->get(),
+                    'monthly_activities' => $monthlyActivities,
                 ]);
 
             case 'notaris':
+                $monthlyActivities = [];
+                for ($m = 1; $m <= 12; $m++) {
+                    $monthlyActivities[] = Activity::where('user_notaris_id', $user->id)
+                        ->whereYear('created_at', $currentYear)
+                        ->whereMonth('created_at', $m)
+                        ->count();
+                }
+
                 return response()->json([
                     'role'              => 'notaris',
                     'status_verification' => $user->status_verification ?? 'pending',
@@ -45,10 +62,20 @@ class DashboardController extends Controller
                     'recent_activities' => Activity::where('user_notaris_id', $user->id)
                         ->with(['deed', 'clients'])
                         ->orderByDesc('id')->limit(5)->get(),
+                    'monthly_activities' => $monthlyActivities,
                 ]);
 
             case 'penghadap':
                 $query = $user->clientActivities()->with(['deed', 'notaris'])->orderByDesc('activity.id');
+
+                $monthlyActivities = [];
+                for ($m = 1; $m <= 12; $m++) {
+                    $monthlyActivities[] = $user->clientActivities()
+                        ->whereYear('activity.created_at', $currentYear)
+                        ->whereMonth('activity.created_at', $m)
+                        ->count();
+                }
+
                 return response()->json([
                     'role'            => 'penghadap',
                     'metrics'         => [
@@ -57,6 +84,7 @@ class DashboardController extends Controller
                         'total_aktivitas' => $user->clientActivities()->count(),
                     ],
                     'recent_activities' => $query->limit(5)->get(),
+                    'monthly_activities' => $monthlyActivities,
                 ]);
 
             default:
