@@ -468,7 +468,6 @@ class DraftController extends Controller
             // 5) CSS minimum (aman untuk Dompdf) + dukungan Quill indent
             $css = <<<CSS
 @page { size: {$o['page_size']} {$o['orientation']}; margin: {$mt} {$mr} {$mb} {$ml}; }
-html, body { height: 100%; }
 body { font-family: {$fontStack}; font-size: {$fs}pt; line-height: 1.6; color:#000; margin:0; padding:0; }
 h1,h2,h3,h4,h5,h6{ margin:0 0 10px; font-weight:bold; }
 p{ margin:0 0 8px; text-align:justify; }
@@ -476,7 +475,7 @@ ul,ol{ margin:0 0 12px 22px; padding:0; list-style-position: outside; }
 li{ margin-bottom: 4px; }
 
 /* jaga spasi & line-break */
-.preserve-space { white-space: pre-wrap; }
+.preserve-space p, .preserve-space span, .preserve-space li { white-space: pre-wrap; }
 
 /* hanya untuk tabel parties */
 .parties-table { width:100%; border-collapse:collapse; margin:0; }
