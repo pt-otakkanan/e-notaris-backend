@@ -409,26 +409,7 @@ class TemplateController extends Controller
                 return response()->json(['success' => false, 'message' => 'HTML kosong.'], 422);
             }
 
-            // 2b) Validasi token belum terganti
-            $findUnreplacedTokens = function (string $html) {
-                $tokens = [];
-                if (preg_match_all('/\{\{\s*([A-Za-z0-9_]+)\s*\}\}/', $html, $m1)) {
-                    $tokens = array_merge($tokens, $m1[1]);
-                }
-                if (preg_match_all('/(?<!\{)\{([A-Za-z0-9_]+)\}(?!\})/', $html, $m2)) {
-                    $tokens = array_merge($tokens, $m2[1]);
-                }
-                return array_values(array_unique($tokens));
-            };
-            $unreplaced = $findUnreplacedTokens($htmlRendered);
-            if (!empty($unreplaced)) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Ada variabel yang belum terganti: ' . implode(', ', $unreplaced),
-                    'errors'  => ['unknown_tokens' => $unreplaced],
-                    'data'    => ['unknown_tokens' => $unreplaced, 'count' => count($unreplaced)],
-                ], 422);
-            }
+
 
             // 3) Opsi PDF (defaults + sanitize)
             $pdfOptions = (array) $request->input('pdf_options', []);
@@ -490,7 +471,118 @@ li{ margin-bottom: 4px; }
 .ql-align-center{text-align:center;} .ql-align-right{text-align:right;}
 .ql-align-left{text-align:left;} .ql-align-justify{text-align:justify;}
 strong,b{ font-weight:bold; } em,i{ font-style:italic; } u{ text-decoration:underline; }
+.ql-font-times{font-family:"Times New Roman",serif;} .ql-font-arial{font-family:Arial,sans-serif;}
+.ql-font-helvetica{font-family:Helvetica,Arial,sans-serif;} .ql-font-calibri{font-family:Calibri,sans-serif;}
+.ql-font-georgia{font-family:Georgia,serif;} .ql-font-garamond{font-family:Garamond,serif;}
+.ql-font-cambria{font-family:Cambria,serif;}
+.ql-font-courier{font-family:"Courier New",monospace;} .ql-font-verdana{font-family:Verdana,sans-serif;}
+.ql-font-trebuchet{font-family:"Trebuchet MS",sans-serif;}
+
+/* Quill List formatting using CSS Counters for Dompdf */
+ol {
+  counter-reset: list-0 list-1 list-2 list-3 list-4 list-5 list-6 list-7 list-8 list-9;
+  list-style-type: none;
+  padding-left: 0;
+}
+ol li {
+  counter-reset: list-1 list-2 list-3 list-4 list-5 list-6 list-7 list-8 list-9;
+  position: relative;
+  padding-left: 2.2em;
+}
+ol li::before {
+  content: counter(list-0, decimal) ". ";
+  counter-increment: list-0;
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 1.7em;
+  text-align: right;
+}
+ol li.ql-indent-1 {
+  counter-increment: list-1;
+}
+ol li.ql-indent-1::before {
+  content: counter(list-1, lower-alpha) ". ";
+  counter-reset: list-2 list-3 list-4 list-5 list-6 list-7 list-8 list-9;
+}
+ol li.ql-indent-2 {
+  counter-increment: list-2;
+}
+ol li.ql-indent-2::before {
+  content: counter(list-2, lower-roman) ". ";
+  counter-reset: list-3 list-4 list-5 list-6 list-7 list-8 list-9;
+}
+ol li.ql-indent-3 {
+  counter-increment: list-3;
+}
+ol li.ql-indent-3::before {
+  content: counter(list-3, decimal) ". ";
+  counter-reset: list-4 list-5 list-6 list-7 list-8 list-9;
+}
+ol li.ql-indent-4 {
+  counter-increment: list-4;
+}
+ol li.ql-indent-4::before {
+  content: counter(list-4, lower-alpha) ". ";
+  counter-reset: list-5 list-6 list-7 list-8 list-9;
+}
+ol li.ql-indent-5 {
+  counter-increment: list-5;
+}
+ol li.ql-indent-5::before {
+  content: counter(list-5, lower-roman) ". ";
+  counter-reset: list-6 list-7 list-8 list-9;
+}
+
+/* Quill indent support (p & li) */
+p.ql-indent-1, li.ql-indent-1 { margin-left: 3em; }
+p.ql-indent-2, li.ql-indent-2 { margin-left: 6em; }
+p.ql-indent-3, li.ql-indent-3 { margin-left: 9em; }
+p.ql-indent-4, li.ql-indent-4 { margin-left: 12em; }
+p.ql-indent-5, li.ql-indent-5 { margin-left: 15em; }
+p.ql-indent-6, li.ql-indent-6 { margin-left: 18em; }
+p.ql-indent-7, li.ql-indent-7 { margin-left: 21em; }
+p.ql-indent-8, li.ql-indent-8 { margin-left: 24em; }
+p.ql-indent-9, li.ql-indent-9 { margin-left: 27em; }
 CSS;
+
+            // Sync fonts and font-sizes from span to parent li for correct PDF list marker rendering
+            if (stripos($htmlRendered, '<li') !== false) {
+                $dom = new \DOMDocument();
+                // Suppress errors due to HTML5 tags
+                @$dom->loadHTML('<?xml encoding="utf-8" ?>' . $htmlRendered, LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
+                $lis = $dom->getElementsByTagName('li');
+                foreach ($lis as $li) {
+                    $firstChild = $li->firstChild;
+                    while ($firstChild && $firstChild->nodeType === XML_TEXT_NODE && !trim($firstChild->textContent)) {
+                        $firstChild = $firstChild->nextSibling;
+                    }
+                    if ($firstChild && strtolower($firstChild->nodeName) === 'span') {
+                        if ($firstChild->hasAttribute('class')) {
+                            $spanClass = $firstChild->getAttribute('class');
+                            if (str_contains($spanClass, 'ql-font-')) {
+                                preg_match_all('/ql-font-[a-z0-9_-]+/i', $spanClass, $classes);
+                                if (!empty($classes[0])) {
+                                    $existingClass = $li->getAttribute('class');
+                                    $newClass = trim($existingClass . ' ' . implode(' ', $classes[0]));
+                                    $li->setAttribute('class', $newClass);
+                                }
+                            }
+                        }
+                        if ($firstChild->hasAttribute('style')) {
+                            $spanStyle = $firstChild->getAttribute('style');
+                            if (str_contains($spanStyle, 'font-size')) {
+                                $existingStyle = $li->getAttribute('style');
+                                $newStyle = rtrim($existingStyle, ';') . '; ' . $spanStyle;
+                                $li->setAttribute('style', trim($newStyle, '; '));
+                            }
+                        }
+                    }
+                }
+                $htmlRendered = $dom->saveHTML();
+                // Strip the XML encoding declaration inserted by loadHTML
+                $htmlRendered = str_replace('<?xml encoding="utf-8" ?>', '', $htmlRendered);
+            }
 
             $fullHtml = <<<HTML
 <!doctype html>
