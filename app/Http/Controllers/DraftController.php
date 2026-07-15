@@ -177,6 +177,8 @@ class DraftController extends Controller
             'file_path'             => $filePath,
         ]);
 
+        $this->notifyClientsDraftReady($draft->id);
+
         return response()->json([
             'success' => true,
             'message' => 'Draft berhasil dibuat.',
@@ -298,6 +300,8 @@ class DraftController extends Controller
         if (method_exists($draft, 'clientDrafts') && $draft->clientDrafts()->exists()) {
             $draft->clientDrafts()->update(['status_approval' => 'pending']);
         }
+
+        $this->notifyClientsDraftReady($draft->id);
 
         return response()->json([
             'success' => true,
@@ -741,6 +745,42 @@ HTML;
                 'success' => false,
                 'message' => 'Terjadi kesalahan saat membuat PDF: ' . $e->getMessage(),
             ], 500);
+        }
+    }
+
+    /**
+     * Kirim email notifikasi ke seluruh klien ketika draf siap/diperbarui.
+     */
+    private function notifyClientsDraftReady($draftId)
+    {
+        try {
+            $draft = DraftDeed::with(['activity.clients', 'activity.notaris'])->find($draftId);
+            if (!$draft || !$draft->activity) return;
+
+            $clients = $draft->activity->clients;
+            $notary = $draft->activity->notaris;
+            
+            $frontend = rtrim(config('app.frontend_url'), '/');
+            $url = $frontend . '/app/project-flow/draft/' . $draft->id;
+
+            foreach ($clients as $client) {
+                if (empty($client->email)) continue;
+
+                $subject = "[Draft Akta Baru] Draft Akta untuk Proyek {$draft->activity->name} Siap Direview";
+                $details = [
+                    'subject'        => $subject,
+                    'app_name'       => config('app.name'),
+                    'recipient_name' => $client->name,
+                    'body'           => "Draft akta untuk aktivitas/proyek: <strong>{$draft->activity->name}</strong> telah diperbarui atau selesai dibuat oleh Kantor Notaris <strong>" . ($notary?->name ?? 'Notaris') . "</strong> dan kini siap untuk Anda review/setujui secara online.",
+                    'url'            => $url,
+                    'button_text'    => 'Review Draft Akta',
+                ];
+
+                \Illuminate\Support\Facades\Mail::to($client->email, $client->name)
+                    ->send(new \App\Mail\GeneralNotificationMail($details, $subject));
+            }
+        } catch (\Throwable $e) {
+            Log::warning('Gagal mengirim email notifikasi draft ready ke Klien: ' . $e->getMessage());
         }
     }
 }

@@ -288,8 +288,8 @@ class SignController extends Controller
         try {
             $user = $request->user();
 
-            // Ambil activity + relasi track + draft
-            $activity = Activity::with(['notaris', 'track', 'draft'])->find($activityId);
+            // Ambil activity + relasi track + draft + clients
+            $activity = Activity::with(['notaris', 'track', 'draft', 'clients'])->find($activityId);
             if (!$activity) {
                 return response()->json(['success' => false, 'message' => 'Activity tidak ditemukan'], 404);
             }
@@ -299,14 +299,6 @@ class SignController extends Controller
             if (!$allowed) {
                 return response()->json(['success' => false, 'message' => 'Tidak berhak'], 403);
             }
-
-            // Cek apakah file_ttd sudah ada
-            // if (!$activity->draft || empty($activity->draft->file_ttd)) {
-            //     return response()->json([
-            //         'success' => false,
-            //         'message' => 'Tidak bisa menandai selesai. File TTD belum tersedia.'
-            //     ], 422);
-            // }
 
             // Ambil/siapkan track record
             $track = $activity->track;
@@ -329,6 +321,45 @@ class SignController extends Controller
                     'sign_completed_at' => now(),
                 ]);
                 $track->save();
+            }
+
+            // Kirim email notifikasi ke semua pihak (Notaris dan Klien) bahwa proses TTD telah selesai
+            try {
+                $subject = "[Selesai] Proses Tanda Tangan Akta {$activity->name} Telah Selesai";
+                $frontend = rtrim(config('app.frontend_url'), '/');
+                $url = $frontend . '/app/project-flow/' . $activity->id;
+                
+                // 1. Kirim ke Notaris
+                $notary = $activity->notaris;
+                if ($notary && !empty($notary->email)) {
+                    $details = [
+                        'subject'        => $subject,
+                        'app_name'       => config('app.name'),
+                        'recipient_name' => $notary->name,
+                        'body'           => "Proses tanda tangan digital untuk akta: <strong>{$activity->name}</strong> (Kode: {$activity->tracking_code}) telah ditandai selesai. Dokumen saat ini telah rampung ditandatangani oleh semua pihak.",
+                        'url'            => $url,
+                        'button_text'    => 'Lihat Proyek Selesai',
+                    ];
+                    \Illuminate\Support\Facades\Mail::to($notary->email, $notary->name)
+                        ->send(new \App\Mail\GeneralNotificationMail($details, $subject));
+                }
+
+                // 2. Kirim ke seluruh Klien
+                foreach ($activity->clients as $client) {
+                    if (empty($client->email)) continue;
+                    $details = [
+                        'subject'        => $subject,
+                        'app_name'       => config('app.name'),
+                        'recipient_name' => $client->name,
+                        'body'           => "Proses penandatanganan akta digital untuk proyek <strong>{$activity->name}</strong> telah dinyatakan selesai oleh Kantor Notaris. Seluruh dokumen telah ditandatangani dengan lengkap.",
+                        'url'            => $url,
+                        'button_text'    => 'Lihat Dokumen Selesai',
+                    ];
+                    \Illuminate\Support\Facades\Mail::to($client->email, $client->name)
+                        ->send(new \App\Mail\GeneralNotificationMail($details, $subject));
+                }
+            } catch (\Throwable $e) {
+                Log::warning('Gagal mengirim email notifikasi TTD selesai: ' . $e->getMessage());
             }
 
             return response()->json([

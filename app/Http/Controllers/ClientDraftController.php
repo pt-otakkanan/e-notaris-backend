@@ -189,6 +189,32 @@ class ClientDraftController extends Controller
             // refresh data terkini
             $draft->load(['activity.deed', 'activity.notaris', 'activity.track', 'clientDrafts.user']);
 
+            // Kirim email notifikasi ke Notaris mengenai approval/rejection klien
+            $notary = $draft->activity->notaris ?? null;
+            if ($notary && !empty($notary->email)) {
+                try {
+                    $statusText = $status === 'approved' ? 'menyetujui' : 'menolak';
+                    $subject = "[Persetujuan Draft] Klien {$user->name} telah {$statusText} Draft Akta";
+                    
+                    $frontend = rtrim(config('app.frontend_url'), '/');
+                    $url = $frontend . '/app/project-flow/' . $draft->activity_id;
+
+                    $details = [
+                        'subject'        => $subject,
+                        'app_name'       => config('app.name'),
+                        'recipient_name' => $notary->name,
+                        'body'           => "Klien <strong>{$user->name}</strong> telah <strong>{$statusText}</strong> draf akta untuk aktivitas/proyek: <strong>{$draft->activity->name}</strong> (Kode: {$draft->activity->tracking_code}).",
+                        'url'            => $url,
+                        'button_text'    => 'Lihat Detail Proyek',
+                    ];
+
+                    \Illuminate\Support\Facades\Mail::to($notary->email, $notary->name)
+                        ->send(new \App\Mail\GeneralNotificationMail($details, $subject));
+                } catch (\Throwable $e) {
+                    \Illuminate\Support\Facades\Log::warning('Gagal mengirim email notifikasi draft approval ke Notaris: ' . $e->getMessage());
+                }
+            }
+
             return response()->json([
                 'success' => true,
                 'message' => 'Status approval draft berhasil diperbarui',
