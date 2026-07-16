@@ -90,7 +90,7 @@ class ClientActivityController extends Controller
             'notaris',
             'track',
             'documentRequirements' => function ($q) use ($user) {
-                $q->where('user_id', $user->id);
+                $q->with(['requirement', 'deedRequirementTemplate'])->where('user_id', $user->id);
             },
             // urutkan clients sesuai pivot.order → gunakan nama tabel pivot: client_activity
             'clients' => function ($q) {
